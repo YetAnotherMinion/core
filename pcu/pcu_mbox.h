@@ -23,7 +23,9 @@ struct pcu_mboxes
 void pcu_make_mboxes(struct pcu_mboxes* b, int n);
 void pcu_free_mboxes(struct pcu_mboxes* b);
 
-bool pcu_mbox_send(struct pcu_mboxes* b, pcu_message* m);
+bool pcu_is_near(pcu_message* m);
+
+void pcu_mbox_send(struct pcu_mboxes* b, pcu_message* m);
 bool pcu_mbox_done(pcu_message* m);
 bool pcu_mbox_receive(struct pcu_mboxes* b, pcu_message* m);
 

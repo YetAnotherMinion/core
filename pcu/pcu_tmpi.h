@@ -12,6 +12,9 @@
 
 #include "pcu_mpi.h"
 
+void pcu_tmpi_init(void);
+void pcu_tmpi_free(void);
+
 int pcu_tmpi_size(void);
 int pcu_tmpi_rank(void);
 void pcu_tmpi_send(pcu_message* m, int type);

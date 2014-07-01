@@ -11,15 +11,24 @@
 #include "pcu_thread.h"
 #include "pcu_pmpi.h"
 #include "pcu_common.h"
+#include "pcu_mbox.h"
 #include <assert.h>
 #include <limits.h>
 
-pcu_mpi pcu_tmpi =
-{ .size = pcu_tmpi_size,
-  .rank = pcu_tmpi_rank,
-  .send = pcu_tmpi_send,
-  .done = pcu_tmpi_done,
-  .receive = pcu_tmpi_receive };
+static struct pcu_mboxes mboxes[2];
+
+void pcu_tmpi_init(void)
+{
+  int n = pcu_thread_size();
+  pcu_make_mboxes(&mboxes[0], n);
+  pcu_make_mboxes(&mboxes[1], n);
+}
+
+void pcu_tmpi_free(void)
+{
+  pcu_free_mboxes(&mboxes[0]);
+  pcu_free_mboxes(&mboxes[1]);
+}
 
 int pcu_tmpi_size()
 {
@@ -29,6 +38,21 @@ int pcu_tmpi_size()
 int pcu_tmpi_rank()
 {
   return pcu_thread_size() * pcu_pmpi_rank() + pcu_thread_rank();
+}
+
+static void send_near(pcu_message* m, int type)
+{
+  pcu_mbox_send(&mboxes[type], m);
+}
+
+static bool is_done_near(pcu_message* m)
+{
+  return pcu_mbox_done(m);
+}
+
+static bool receive_near(pcu_message* m, int type)
+{
+  return pcu_mbox_receive(&mboxes[type], m);
 }
 
 #define THREAD_BITS 10
@@ -72,7 +96,7 @@ static int make_compound_tag(int from_thread, int to_thread)
   return result;
 }
 
-void pcu_tmpi_send(pcu_message* m, int type)
+static void send_far(pcu_message* m, int type)
 {
   int thread_size = pcu_thread_size();
   int thread_rank = pcu_thread_rank();
@@ -84,12 +108,12 @@ void pcu_tmpi_send(pcu_message* m, int type)
   m->peer = peer_process*thread_size + peer_thread;
 }
 
-bool pcu_tmpi_done(pcu_message* m)
+static bool is_done_far(pcu_message* m)
 {
   return pcu_pmpi_done(m);
 }
 
-bool pcu_tmpi_receive(pcu_message* m, int type)
+static bool receive_far(pcu_message* m, int type)
 {
   MPI_Status status;
   int flag;
@@ -138,6 +162,30 @@ bool pcu_tmpi_receive(pcu_message* m, int type)
   return true;
 }
 
+void pcu_tmpi_send(pcu_message* m, int type)
+{
+  if (pcu_is_near(m))
+    send_near(m, type);
+  else
+    send_far(m, type);
+}
+
+bool pcu_tmpi_done(pcu_message* m)
+{
+  if (pcu_is_near(m))
+    return is_done_near(m);
+  else
+    return is_done_far(m);
+}
+
+bool pcu_tmpi_receive(pcu_message* m, int type)
+{
+  if (pcu_is_near(m))
+    return receive_near(m, type);
+  else
+    return receive_far(m, type);
+}
+
 void pcu_tmpi_check_support(void)
 {
   int provided;
@@ -145,3 +193,11 @@ void pcu_tmpi_check_support(void)
   if (provided != MPI_THREAD_MULTIPLE)
     pcu_fail("MPI_Init_thread was not called with MPI_THREAD_MULTIPLE");
 }
+
+pcu_mpi pcu_tmpi =
+{ .size = pcu_tmpi_size,
+  .rank = pcu_tmpi_rank,
+  .send = pcu_tmpi_send,
+  .done = pcu_tmpi_done,
+  .receive = pcu_tmpi_receive };
+

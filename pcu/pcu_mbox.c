@@ -89,26 +89,21 @@ void pcu_free_mboxes(struct pcu_mboxes* b)
   pcu_free(b->boxes);
 }
 
-static bool is_local(pcu_message* m)
+bool pcu_is_near(pcu_message* m)
 {
   return (m->peer / pcu_thread_size()) == pcu_pmpi_rank();
 }
 
-bool pcu_mbox_send(struct pcu_mboxes* b, pcu_message* m)
+void pcu_mbox_send(struct pcu_mboxes* b, pcu_message* m)
 {
-  if (!is_local(m))
-    return false;
   int peer = m->peer % pcu_thread_size();
   int self = pcu_thread_rank();
   fill_mbox(&b->boxes[self][peer], m);
-  return true;
 }
 
 bool pcu_mbox_done(pcu_message* m)
 {
   MPI_Request r;
-  if (!is_local(m))
-    return false;
   memset(&r, 0xFF, sizeof(r));
   return memcmp(&r, &m->request, sizeof(r)) == 0;
 }
