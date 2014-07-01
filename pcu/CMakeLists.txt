@@ -12,8 +12,9 @@ endif()
 
 option(ENABLE_THREADS "Enable threading using pthread [ON|OFF]" OFF)
 option(PCU_COMPRESS "Enable SMB compression using libbzip2 [ON|OFF]" OFF)
-if( NOT ${ENABLE_THREADS} STREQUAL "ON" AND NOT ${ENABLE_THREADS} STREQUAL "OFF")
-  message(FATAL_ERROR "PCU ENABLE_THREADS must be either ON or OFF, currently set to ${ENABLE_THREADS}")
+if(NOT ${ENABLE_THREADS} STREQUAL "ON" AND
+   NOT ${ENABLE_THREADS} STREQUAL "OFF")
+  message(FATAL_ERROR "PCU ENABLE_THREADS must be either ON or OFF")
 endif()
 
 set(CMAKE_MODULE_PATH 
@@ -76,7 +77,8 @@ set(SOURCES
 if(ENABLE_THREADS)       
    set(SOURCES ${SOURCES}
       pcu_thread.c
-      pcu_tmpi.c)
+      pcu_tmpi.c
+      pcu_mbox.c)
 endif(ENABLE_THREADS)
 
 set(HEADERS
