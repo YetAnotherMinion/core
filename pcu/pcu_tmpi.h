@@ -14,9 +14,9 @@
 
 int pcu_tmpi_size(void);
 int pcu_tmpi_rank(void);
-void pcu_tmpi_send(pcu_message* m, MPI_Comm comm);
+void pcu_tmpi_send(pcu_message* m, int type);
 bool pcu_tmpi_done(pcu_message* m);
-bool pcu_tmpi_receive(pcu_message* m, MPI_Comm comm);
+bool pcu_tmpi_receive(pcu_message* m, int type);
 
 void pcu_tmpi_check_support(void);
 

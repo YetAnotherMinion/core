@@ -48,10 +48,10 @@ static void check_rank(int rank)
   assert(rank < pcu_mpi_size());
 }
 
-void pcu_mpi_send(pcu_message* m, MPI_Comm comm)
+void pcu_mpi_send(pcu_message* m, int type)
 {
   check_rank(m->peer);
-  global_mpi->send(m,comm);
+  global_mpi->send(m, type);
 }
 
 bool pcu_mpi_done(pcu_message* m)
@@ -59,9 +59,9 @@ bool pcu_mpi_done(pcu_message* m)
   return global_mpi->done(m);
 }
 
-bool pcu_mpi_receive(pcu_message* m, MPI_Comm comm)
+bool pcu_mpi_receive(pcu_message* m, int type)
 {
   if (m->peer != MPI_ANY_SOURCE)
     check_rank(m->peer);
-  return global_mpi->receive(m,comm);
+  return global_mpi->receive(m, type);
 }

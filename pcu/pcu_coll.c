@@ -90,7 +90,7 @@ static void begin_coll_step(pcu_coll* c)
     return;
   c->message.peer = c->pattern->peer(c->bit);
   if (action == pcu_coll_send)
-    pcu_mpi_send(&(c->message),pcu_coll_comm);
+    pcu_mpi_send(&(c->message), PCU_COLL_MESSAGE);
 }
 
 /* tries to complete this communication step.
@@ -107,7 +107,7 @@ static bool end_coll_step(pcu_coll* c)
   pcu_message incoming;
   pcu_make_message(&incoming);
   incoming.peer = c->pattern->peer(c->bit);
-  if ( ! pcu_mpi_receive(&incoming,pcu_coll_comm))
+  if ( ! pcu_mpi_receive(&incoming, PCU_COLL_MESSAGE))
     return false;
   if (c->message.buffer.size != incoming.buffer.size)
     pcu_fail("collective not called by all ranks or pcu bug");

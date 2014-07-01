@@ -144,7 +144,7 @@ static void send_peers(pcu_aa_tree t)
     return;
   pcu_msg_peer* peer;
   peer = (pcu_msg_peer*)t;
-  pcu_mpi_send(&(peer->message),pcu_user_comm);
+  pcu_mpi_send(&(peer->message), PCU_USER_MESSAGE);
   send_peers(t->left);
   send_peers(t->right);
 }
@@ -171,7 +171,7 @@ static bool done_sending_peers(pcu_aa_tree t)
 static bool receive_global(pcu_msg* m)
 {
   m->received.peer = MPI_ANY_SOURCE;
-  while ( ! pcu_mpi_receive(&(m->received),pcu_user_comm))
+  while ( ! pcu_mpi_receive(&(m->received), PCU_USER_MESSAGE))
   {
     if (m->state == send_recv_state)
       if (done_sending_peers(m->peers))

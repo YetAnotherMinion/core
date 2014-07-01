@@ -72,7 +72,7 @@ static int make_compound_tag(int from_thread, int to_thread)
   return result;
 }
 
-void pcu_tmpi_send(pcu_message* m, MPI_Comm comm)
+void pcu_tmpi_send(pcu_message* m, int type)
 {
   int thread_size = pcu_thread_size();
   int thread_rank = pcu_thread_rank();
@@ -80,7 +80,7 @@ void pcu_tmpi_send(pcu_message* m, MPI_Comm comm)
   int peer_process = m->peer / thread_size;
   int tag = make_compound_tag(thread_rank,peer_thread);
   m->peer = peer_process;
-  pcu_pmpi_send2(m,tag,comm);
+  pcu_pmpi_send2(m, tag, type);
   m->peer = peer_process*thread_size + peer_thread;
 }
 
@@ -89,7 +89,7 @@ bool pcu_tmpi_done(pcu_message* m)
   return pcu_pmpi_done(m);
 }
 
-bool pcu_tmpi_receive(pcu_message* m, MPI_Comm comm)
+bool pcu_tmpi_receive(pcu_message* m, int type)
 {
   MPI_Status status;
   int flag;
@@ -107,7 +107,7 @@ bool pcu_tmpi_receive(pcu_message* m, MPI_Comm comm)
     m->peer = peer_process;
     mpi_tag = make_compound_tag(peer_thread,thread_rank);
   }
-  MPI_Iprobe(m->peer,mpi_tag,comm,&flag,&status);
+  MPI_Iprobe(m->peer, mpi_tag, pcu_comms[type], &flag, &status);
   if (!flag)
   {
     if (m->peer != MPI_ANY_SOURCE)
@@ -132,7 +132,7 @@ bool pcu_tmpi_receive(pcu_message* m, MPI_Comm comm)
       MPI_BYTE,
       m->peer,
       mpi_tag,
-      comm,
+      pcu_comms[type],
       MPI_STATUS_IGNORE);
   m->peer = peer_process*thread_size + peer_thread;
   return true;

@@ -14,8 +14,7 @@
 static int global_size;
 static int global_rank;
 
-MPI_Comm pcu_user_comm;
-MPI_Comm pcu_coll_comm;
+MPI_Comm pcu_comms[2];
 
 pcu_mpi pcu_pmpi =
 { .size = pcu_pmpi_size,
@@ -26,16 +25,16 @@ pcu_mpi pcu_pmpi =
 
 void pcu_pmpi_init(MPI_Comm comm)
 {
-  MPI_Comm_dup(comm,&pcu_user_comm);
-  MPI_Comm_dup(comm,&pcu_coll_comm);
+  MPI_Comm_dup(comm,&pcu_comms[PCU_USER_MESSAGE]);
+  MPI_Comm_dup(comm,&pcu_comms[PCU_COLL_MESSAGE]);
   MPI_Comm_size(comm,&global_size);
   MPI_Comm_rank(comm,&global_rank);
 }
 
 void pcu_pmpi_finalize(void)
 {
-  MPI_Comm_free(&pcu_user_comm);
-  MPI_Comm_free(&pcu_coll_comm);
+  MPI_Comm_free(&pcu_comms[PCU_USER_MESSAGE]);
+  MPI_Comm_free(&pcu_comms[PCU_COLL_MESSAGE]);
 }
 
 int pcu_pmpi_size(void)
@@ -48,12 +47,12 @@ int pcu_pmpi_rank(void)
   return global_rank;
 }
 
-void pcu_pmpi_send(pcu_message* m, MPI_Comm comm)
+void pcu_pmpi_send(pcu_message* m, int type)
 {
-  pcu_pmpi_send2(m,0,comm);
+  pcu_pmpi_send2(m, 0, type);
 }
 
-void pcu_pmpi_send2(pcu_message* m, int tag, MPI_Comm comm)
+void pcu_pmpi_send2(pcu_message* m, int tag, int type)
 {
   MPI_Issend(
       m->buffer.start,
@@ -61,7 +60,7 @@ void pcu_pmpi_send2(pcu_message* m, int tag, MPI_Comm comm)
       MPI_BYTE,
       m->peer,
       tag,
-      comm,
+      pcu_comms[type],
       &(m->request));
 }
 
@@ -72,16 +71,16 @@ bool pcu_pmpi_done(pcu_message* m)
   return flag;
 }
 
-bool pcu_pmpi_receive(pcu_message* m, MPI_Comm comm)
+bool pcu_pmpi_receive(pcu_message* m, int type)
 {
-  return pcu_pmpi_receive2(m,0,comm);
+  return pcu_pmpi_receive2(m, 0, type);
 }
 
-bool pcu_pmpi_receive2(pcu_message* m, int tag, MPI_Comm comm)
+bool pcu_pmpi_receive2(pcu_message* m, int tag, int type)
 {
   MPI_Status status;
   int flag;
-  MPI_Iprobe(m->peer,tag,comm,&flag,&status);
+  MPI_Iprobe(m->peer, tag, pcu_comms[type], &flag, &status);
   if (!flag)
     return false;
   m->peer = status.MPI_SOURCE;
@@ -94,7 +93,7 @@ bool pcu_pmpi_receive2(pcu_message* m, int tag, MPI_Comm comm)
       MPI_BYTE,
       m->peer,
       tag,
-      comm,
+      pcu_comms[type],
       MPI_STATUS_IGNORE);
   return true;
 }

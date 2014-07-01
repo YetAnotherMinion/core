@@ -23,21 +23,27 @@ typedef struct
 void pcu_make_message(pcu_message* m);
 void pcu_free_message(pcu_message* m);
 
+/* message types */
+enum {
+  PCU_USER_MESSAGE,
+  PCU_COLL_MESSAGE,
+};
+
 typedef struct
 {
   int (*size)(void);
   int (*rank)(void);
-  void (*send)(pcu_message* m, MPI_Comm comm);
+  void (*send)(pcu_message* m, int type);
   bool (*done)(pcu_message* m);
-  bool (*receive)(pcu_message* m, MPI_Comm comm);
+  bool (*receive)(pcu_message* m, int type);
 } pcu_mpi;
 
 void pcu_set_mpi(pcu_mpi* m);
 pcu_mpi* pcu_get_mpi(void);
 int pcu_mpi_size(void);
 int pcu_mpi_rank(void);
-void pcu_mpi_send(pcu_message* m, MPI_Comm comm);
+void pcu_mpi_send(pcu_message* m, int type);
 bool pcu_mpi_done(pcu_message* m);
-bool pcu_mpi_receive(pcu_message* m, MPI_Comm comm);
+bool pcu_mpi_receive(pcu_message* m, int type);
 
 #endif
