@@ -28,4 +28,3 @@ bool pcu_mbox_done(pcu_message* m);
 bool pcu_mbox_receive(struct pcu_mboxes* b, pcu_message* m);
 
 #endif
-
