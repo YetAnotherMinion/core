@@ -60,8 +60,8 @@ static bool check_mbox(struct pcu_mbox* b, pcu_message* m)
   lock_mbox(b);
   bool ret = false;
   if (b->sent) {
-    *m = *b->sent;
-    memset(&b->sent->buffer, 0, sizeof(b->sent->buffer));
+    pcu_resize_buffer(&m->buffer, b->sent->buffer.size);
+    memcpy(m->buffer.start, b->sent->buffer.start, m->buffer.size);
     memset(&b->sent->request, 0, sizeof(b->sent->request));
     b->sent = 0;
     ret = true;

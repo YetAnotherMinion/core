@@ -4,8 +4,9 @@
 void* thread_main(void* arg)
 {
   fprintf(stderr,"hello!\n");
-  PCU_Barrier();
-  fprintf(stderr,"%d done!\n", PCU_Comm_Self());
+  double data[2] = {1.0, 2.0};
+  PCU_Add_Doubles(data, 2);
+  fprintf(stderr,"%d done! (%f %f)\n", PCU_Comm_Self(), data[0], data[1]);
   return NULL;
 }
 
