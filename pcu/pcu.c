@@ -406,6 +406,7 @@ int PCU_Thrd_Run(int nthreads, PCU_Thrd_Func function, void** in_out)
     pcu_fail("nested calls to Thrd_Run");
   pcu_tmpi_check_support();
   pcu_free_msg(&global_pmsg);
+  pcu_tmpi_init(nthreads);
   pcu_set_mpi(&pcu_tmpi);
   PCU_MALLOC(global_tmsg,(size_t)nthreads);
   global_function = function;
@@ -413,6 +414,7 @@ int PCU_Thrd_Run(int nthreads, PCU_Thrd_Func function, void** in_out)
   pcu_run_threads(nthreads,run);
   pcu_free(global_tmsg);
   pcu_set_mpi(&pcu_pmpi);
+  pcu_tmpi_free();
   pcu_make_msg(&global_pmsg);
 #else
   (void)nthreads;//unused parameter warning silencer

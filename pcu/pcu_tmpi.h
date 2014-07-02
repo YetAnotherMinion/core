@@ -12,7 +12,7 @@
 
 #include "pcu_mpi.h"
 
-void pcu_tmpi_init(void);
+void pcu_tmpi_init(int n);
 void pcu_tmpi_free(void);
 
 int pcu_tmpi_size(void);

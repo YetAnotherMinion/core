@@ -75,9 +75,11 @@ void pcu_make_mboxes(struct pcu_mboxes* b, int n)
   b->n = n;
   PCU_MALLOC(b->boxes, n);
   PCU_MALLOC(b->boxes[0], n * n);
-  for (int i = 0; i < n; ++i)
-  for (int j = 0; j < n; ++j)
-    init_mbox(&b->boxes[i][j]);
+  for (int i = 0; i < n; ++i) {
+    b->boxes[i] = b->boxes[0] + i * n;
+    for (int j = 0; j < n; ++j)
+      init_mbox(&b->boxes[i][j]);
+  }
 }
 
 void pcu_free_mboxes(struct pcu_mboxes* b)

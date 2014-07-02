@@ -32,6 +32,7 @@ add_executable(ghost EXCLUDE_FROM_ALL ghost.cc)
 add_executable(bfs EXCLUDE_FROM_ALL bfs.cc)
 add_executable(hps EXCLUDE_FROM_ALL hps.cc)
 add_executable(fan EXCLUDE_FROM_ALL fan.cc)
+add_executable(dan EXCLUDE_FROM_ALL dan.cc)
 
 set(tests
   mdlConvert
@@ -54,7 +55,8 @@ set(tests
   ghost
   bfs
   hps
-  fan)
+  fan
+  dan)
 
 foreach(test ${tests})
   target_link_libraries(${test}
