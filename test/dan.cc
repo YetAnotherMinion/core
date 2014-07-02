@@ -5,6 +5,7 @@ void* thread_main(void* arg)
 {
   fprintf(stderr,"hello!\n");
   PCU_Barrier();
+  fprintf(stderr,"%d done!\n", PCU_Comm_Self());
   return NULL;
 }
 

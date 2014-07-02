@@ -14,35 +14,37 @@
 #include <assert.h>
 #include <string.h>
 
+#include <stdio.h>
+
 struct pcu_mbox
 {
   pcu_message* sent;
-  pthread_spinlock_t lock;
+  pthread_mutex_t lock;
 };
 
 static void init_mbox(struct pcu_mbox* b)
 {
   int err;
   b->sent = 0;
-  err = pthread_spin_init(&b->lock, PTHREAD_PROCESS_PRIVATE);
+  err = pthread_mutex_init(&b->lock, NULL);
   assert(!err);
 }
 
 static void free_mbox(struct pcu_mbox* b)
 {
-  int err = pthread_spin_destroy(&b->lock);
+  int err = pthread_mutex_destroy(&b->lock);
   assert(!err);
 }
 
 static void lock_mbox(struct pcu_mbox* b)
 {
-  int err = pthread_spin_lock(&b->lock);
+  int err = pthread_mutex_lock(&b->lock);
   assert(!err);
 }
 
 static void unlock_mbox(struct pcu_mbox* b)
 {
-  int err = pthread_spin_unlock(&b->lock);
+  int err = pthread_mutex_unlock(&b->lock);
   assert(!err);
 }
 
@@ -53,6 +55,7 @@ static void fill_mbox(struct pcu_mbox* b, pcu_message* m)
   b->sent = m;
   memset(&m->request, 0xFF, sizeof(m->request));
   unlock_mbox(b);
+  fprintf(stderr,"%d sent to %d\n",pcu_mpi_rank(),m->peer);
 }
 
 static bool check_mbox(struct pcu_mbox* b, pcu_message* m)
@@ -61,12 +64,15 @@ static bool check_mbox(struct pcu_mbox* b, pcu_message* m)
   bool ret = false;
   if (b->sent) {
     *m = *b->sent;
+    assert(m->peer == b->sent->peer);
     memset(&b->sent->buffer, 0, sizeof(b->sent->buffer));
     memset(&b->sent->request, 0, sizeof(b->sent->request));
     b->sent = 0;
     ret = true;
   }
   unlock_mbox(b);
+  if (ret)
+    fprintf(stderr,"%d recvd from %d\n",pcu_mpi_rank(),m->peer);
   return ret;
 }
 
@@ -106,7 +112,7 @@ void pcu_mbox_send(struct pcu_mboxes* b, pcu_message* m)
 bool pcu_mbox_done(pcu_message* m)
 {
   MPI_Request r;
-  memset(&r, 0xFF, sizeof(r));
+  memset(&r, 0, sizeof(r));
   return memcmp(&r, &m->request, sizeof(r)) == 0;
 }
 
