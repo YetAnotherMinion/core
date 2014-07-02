@@ -3,22 +3,13 @@
 
 void* thread_main(void* arg)
 {
-  fprintf(stderr,"hello!\n");
-  int data = 0;
-  PCU_Comm_Begin();
-  if (PCU_Comm_Self() > 1) {
-    data = 42;
-    PCU_COMM_PACK(1, data);
-  }
-  PCU_Comm_Send();
-  while (PCU_Comm_Listen()) {
-    PCU_COMM_UNPACK(data);
-    fprintf(stderr,"%d got %d from %d\n",
-        PCU_Comm_Self(), data, PCU_Comm_Sender());
-  }
-  double moredat[2] = {1, 7};
-  PCU_Add_Doubles(moredat, 2);
-  fprintf(stderr,"%d done!\n", PCU_Comm_Self());
+  double t0 = MPI_Wtime();
+  double moredat[2] = {1,7};
+  for (int i = 0; i < 10000; ++i)
+    PCU_Add_Doubles(moredat, 2);
+  double t1 = MPI_Wtime();
+  if (!PCU_Comm_Self())
+    fprintf(stderr,"%f seconds\n", t1 - t0);
   return NULL;
 }
 
@@ -29,7 +20,7 @@ int main(int argc, char** argv)
   assert(provided==MPI_THREAD_MULTIPLE);
   PCU_Comm_Init();
   PCU_Protect();
-  PCU_Thrd_Run(4, thread_main, NULL);
+  PCU_Thrd_Run(16, thread_main, NULL);
   fprintf(stderr,"ok!\n");
   PCU_Comm_Free();
   MPI_Finalize();
