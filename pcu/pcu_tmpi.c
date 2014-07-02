@@ -179,6 +179,8 @@ bool pcu_tmpi_done(pcu_message* m)
 
 bool pcu_tmpi_receive(pcu_message* m, int type)
 {
+  if (m->peer == MPI_ANY_SOURCE)
+    return receive_near(m, type) || receive_far(m, type);
   if (pcu_is_near(m))
     return receive_near(m, type);
   else

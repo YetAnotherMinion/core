@@ -55,13 +55,15 @@ static void fill_mbox(struct pcu_mbox* b, pcu_message* m)
   unlock_mbox(b);
 }
 
-static bool check_mbox(struct pcu_mbox* b, pcu_message* m)
+static bool check_mbox(struct pcu_mboxes* bs, int from, int to, pcu_message* m)
 {
+  struct pcu_mbox* b = &bs->boxes[from][to];
   lock_mbox(b);
   bool ret = false;
   if (b->sent) {
     pcu_resize_buffer(&m->buffer, b->sent->buffer.size);
     memcpy(m->buffer.start, b->sent->buffer.start, m->buffer.size);
+    m->peer = from + pcu_pmpi_rank() * pcu_thread_size();
     memset(&b->sent->request, 0, sizeof(b->sent->request));
     b->sent = 0;
     ret = true;
@@ -113,9 +115,14 @@ bool pcu_mbox_done(pcu_message* m)
 bool pcu_mbox_receive(struct pcu_mboxes* b, pcu_message* m)
 {
   int self = pcu_thread_rank();
-  for (int i = 0; i < b->n; ++i)
-    if (check_mbox(&b->boxes[i][self], m))
-      return true;
-  return false;
+  if (m->peer == MPI_ANY_SOURCE) {
+    for (int i = 0; i < b->n; ++i)
+      if (check_mbox(b, i, self, m))
+        return true;
+    return false;
+  } else {
+    int peer = m->peer % pcu_thread_size();
+    return check_mbox(b, peer, self, m);
+  }
 }
 
