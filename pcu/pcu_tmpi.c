@@ -15,8 +15,6 @@
 #include <assert.h>
 #include <limits.h>
 
-#include <stdio.h>
-
 static struct pcu_mboxes mboxes[2];
 
 void pcu_tmpi_init(int n)
@@ -43,7 +41,6 @@ int pcu_tmpi_rank()
 
 static void send_near(pcu_message* m, int type)
 {
-//fprintf(stderr,"%d send near to %d\n", pcu_mpi_rank(), m->peer);
   pcu_mbox_send(&mboxes[type], m);
 }
 

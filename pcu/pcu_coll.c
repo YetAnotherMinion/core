@@ -13,8 +13,6 @@
 #include <assert.h>
 #include <string.h>
 
-#include <stdio.h>
-
 void pcu_merge_assign(void* local, void* incoming, size_t size)
 {
   memcpy(local,incoming,size);
@@ -458,6 +456,5 @@ bool pcu_barrier_done(pcu_coll* c)
 void pcu_barrier(pcu_coll* c)
 {
   pcu_begin_barrier(c);
-  fprintf(stderr,"%d entering barrier wait\n", pcu_mpi_rank());
   while( ! pcu_barrier_done(c));
 }
