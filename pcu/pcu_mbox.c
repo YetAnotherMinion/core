@@ -17,32 +17,32 @@
 struct pcu_mbox
 {
   pcu_message* sent;
-  pthread_mutex_t lock;
+  pthread_spinlock_t lock;
 };
 
 static void init_mbox(struct pcu_mbox* b)
 {
   int err;
   b->sent = 0;
-  err = pthread_mutex_init(&b->lock, NULL);
+  err = pthread_spin_init(&b->lock, PTHREAD_PROCESS_PRIVATE);
   assert(!err);
 }
 
 static void free_mbox(struct pcu_mbox* b)
 {
-  int err = pthread_mutex_destroy(&b->lock);
+  int err = pthread_spin_destroy(&b->lock);
   assert(!err);
 }
 
 static void lock_mbox(struct pcu_mbox* b)
 {
-  int err = pthread_mutex_lock(&b->lock);
+  int err = pthread_spin_lock(&b->lock);
   assert(!err);
 }
 
 static void unlock_mbox(struct pcu_mbox* b)
 {
-  int err = pthread_mutex_unlock(&b->lock);
+  int err = pthread_spin_unlock(&b->lock);
   assert(!err);
 }
 
