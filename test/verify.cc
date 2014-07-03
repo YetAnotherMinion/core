@@ -4,19 +4,28 @@
 #include <apf.h>
 #include <PCU.h>
 
-int main(int argc, char** argv)
+char** argv;
+
+void* thread_main(void*)
 {
-  assert(argc==3);
-  MPI_Init(&argc,&argv);
-  PCU_Comm_Init();
-  gmi_register_mesh();
   apf::Mesh2* m = apf::loadMdsMesh(argv[1],argv[2]);
   m->verify();
   m->destroyNative();
   apf::destroyMesh(m);
+  return NULL;
+}
+
+int main(int argc, char** argv_in)
+{
+  assert(argc==4);
+  argv = argv_in;
+  int provided;
+  MPI_Init_thread(&argc,&argv,MPI_THREAD_MULTIPLE,&provided);
+  assert(provided == MPI_THREAD_MULTIPLE);
+  PCU_Comm_Init();
+  gmi_register_mesh();
+  PCU_Thrd_Run(atoi(argv[3]), thread_main, NULL);
   PCU_Comm_Free();
   MPI_Finalize();
 }
-
-
 
