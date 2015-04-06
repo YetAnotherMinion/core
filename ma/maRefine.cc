@@ -7,6 +7,7 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "maRefine.h"
 #include "maTemplates.h"
 #include "maAdapt.h"
@@ -18,8 +19,6 @@
 #include "maSnap.h"
 #include "maLayer.h"
 #include <apf.h>
-#include <PCU.h>
-#include <malloc.h>
 
 namespace ma {
 
@@ -219,7 +218,7 @@ static int getEdgeSplitCode(Adapt* a, Entity* e)
    the entity to the standard orientation for its template,
    returning the code index for the template and the
    rotated vertices. */
-int matchToTemplate(Adapt* a, int type, Entity** vi, int code, Entity** vo)
+int matchToTemplate(int type, Entity** vi, int code, Entity** vo)
 {
   CodeMatch const* table = code_match[type];
   assert(table[code].code_index != -1);
@@ -235,7 +234,7 @@ int matchEntityToTemplate(Adapt* a, Entity* e, Entity** vo)
   int type = m->getType(e);
   Downward vi;
   m->getDownward(e, 0, vi);
-  return matchToTemplate(a, type, vi, code, vo);
+  return matchToTemplate(type, vi, code, vo);
 }
 
 static SplitFunction* all_templates[TYPES] =
@@ -293,7 +292,7 @@ static void linkNewVerts(Refine* r)
     {
       PCU_COMM_UNPACK(message);
       Entity* v = findSplitVert(r,message.parent);
-      addRemote(m,v,from,message.vert);
+      m->addRemote(v,from,message.vert);
     }
   }
 }
@@ -432,7 +431,7 @@ void cleanupAfter(Refine* r)
 
 bool refine(Adapt* a)
 {
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   --(a->refinesLeft);
   setupLayerForSplit(a);
   long count = markEdgesToSplit(a);
@@ -452,7 +451,7 @@ bool refine(Adapt* a)
   destroySplitElements(r);
   cleanSplitVerts(r);
   forgetNewEntities(r);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   print("refined %li edges in %f seconds",count,t1-t0);
   resetLayer(a);
   return true;

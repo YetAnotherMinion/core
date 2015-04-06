@@ -24,7 +24,7 @@ apf::Migration* getPlan(apf::Mesh* m)
   apf::Splitter* splitter = apf::makeZoltanSplitter(
       m, apf::GRAPH, apf::PARTITION, false);
   apf::MeshTag* weights = Parma_WeighByMemory(m);
-  apf::Migration* plan = splitter->split(weights, 1.10, partitionFactor);
+  apf::Migration* plan = splitter->split(weights, 1.05, partitionFactor);
   apf::removeTagFromDimension(m, weights, m->getDimension());
   m->destroyTag(weights);
   delete splitter;
@@ -39,7 +39,12 @@ void runAfter(apf::Mesh2* m)
 
 void getConfig(int argc, char** argv)
 {
-  assert(argc==5);
+  if ( argc != 5 ) {
+    if ( !PCU_Comm_Self() )
+      printf("Usage: %s <model> <mesh> <outMesh> <factor>\n", argv[0]);
+    MPI_Finalize();
+    exit(EXIT_FAILURE);
+  }
   modelFile = argv[1];
   meshFile = argv[2];
   outFile = argv[3];
@@ -55,7 +60,6 @@ int main(int argc, char** argv)
   assert(provided==MPI_THREAD_MULTIPLE);
   PCU_Comm_Init();
   gmi_register_mesh();
-  PCU_Protect();
   getConfig(argc,argv);
   apf::Mesh2* m = apf::loadMdsMesh(modelFile,meshFile);
   splitMdsMesh(m, getPlan(m), partitionFactor, runAfter);

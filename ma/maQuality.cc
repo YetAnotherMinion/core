@@ -89,7 +89,7 @@ double measureLinearTetQuality(Vector xyz[4])
   J[0] = xyz[1] - xyz[0];
   J[1] = xyz[2] - xyz[0];
   J[2] = xyz[3] - xyz[0];
-  double j = apf::det(J);
+  double j = apf::getDeterminant(J);
   double V = j/6;
   double s = 0;
   for (int i = 0; i < 6; ++i) {
@@ -277,6 +277,111 @@ double measureQuadraticTetQuality(Mesh* m, Entity* tet)
   for (int i = 0; i < 6; ++i)
     m->getPoint(e[i],0,ep[i]);
   return measureQuadraticTetQuality(xyz);
+}
+
+/* note that there is a somewhat duplicate class
+   in phasta/phConstraint.cc.
+   consider unifying plane code in the future */
+struct Plane
+{
+  Plane(Vector const& a, Vector const& b, Vector const& c)
+  {
+    normal = apf::cross(a - c, b - c);
+    radius = b * normal;
+  }
+  double distance(Vector const& p)
+  {
+    return (p * normal) - radius;
+  }
+  Vector normal;
+  double radius;
+};
+
+bool isPrismOk(Mesh* m, Entity* e)
+{
+  Entity* v[6];
+  m->getDownward(e, 0, v);
+  Vector p[6];
+  for (int i = 0; i < 6; ++i)
+    m->getPoint(v[i], 0, p[i]);
+  for (int i = 0; i < 6; ++i) {
+    int const* new_to_old = prism_rotation[i];
+    Plane pl(p[new_to_old[0]],
+             p[new_to_old[1]],
+             p[new_to_old[5]]);
+    if (pl.distance(p[new_to_old[3]]) <= 0)
+      return false;
+    if (pl.distance(p[new_to_old[4]]) <= 0)
+      return false;
+    if (pl.distance(p[new_to_old[2]]) >= 0)
+      return false;
+  }
+  return true;
+}
+
+bool isPyramidOk(Mesh* m, Entity* e)
+{
+  Entity* v[5];
+  m->getDownward(e, 0, v);
+  Vector p[5];
+  for (int i = 0; i < 5; ++i)
+    m->getPoint(v[i], 0, p[i]);
+  for (int i = 0; i < 2; ++i) {
+    int const* new_to_old = pyramid_rotation[i];
+    Plane pl(p[new_to_old[0]],
+             p[new_to_old[2]],
+             p[new_to_old[4]]);
+    if (pl.distance(p[new_to_old[1]]) <= 0)
+      return false;
+    if (pl.distance(p[new_to_old[3]]) >= 0)
+      return false;
+  }
+  return true;
+}
+
+bool isLayerElementOk(Mesh* m, Entity* e)
+{
+  int type = m->getType(e);
+  if (type == PYRAMID)
+    return isPyramidOk(m, e);
+  if (type == PRISM)
+    return isPrismOk(m, e);
+  abort();
+  return false;
+}
+
+double getInsphere(Mesh* m, Entity* e)
+{
+  assert(m->getType(e) == TET);
+
+  // Insphere r of a tet computed by the forumla at
+  // http://maths.ac-noumea.nc/polyhedr/stuff/tetra_sf_.htm
+  // a, b, c, d are the four points of the tet
+  // N_abc = (b-a) x (c-a) (x is the cross product)
+  //              a_x a_y a_z 1
+  // alpha = det( b_x b_y b_z 1 )
+  //              a_x a_y a_z 1
+  //              a_x a_y a_z 1
+  // r = |alpha| / (||N_abc||+||N_abd||+||N_acd||+||N_bcd||)
+  Entity* v[4];
+  m->getDownward(e, 0, v);
+
+  apf::Matrix<4,3> x;
+  apf::Matrix<4,4> matrix;
+
+  for (int i=0; i < 4; ++i) {
+    x[i] = getPosition(m, v[i]);
+    for (int j = 0; j < 3; ++j)
+      matrix[i][j] = x[i][j];
+    matrix[i][3] = 1;
+  }
+
+  double l = apf::cross(x[1]-x[0], x[2]-x[0]).getLength()
+           + apf::cross(x[1]-x[0], x[3]-x[0]).getLength()
+           + apf::cross(x[2]-x[0], x[3]-x[0]).getLength()
+           + apf::cross(x[2]-x[1], x[3]-x[1]).getLength();
+
+  return std::abs(apf::getDeterminant(matrix)) / l;
 }
 
 }

@@ -7,12 +7,13 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "maSnap.h"
 #include "maAdapt.h"
 #include "maOperator.h"
 #include "maSnapper.h"
 #include "maLayer.h"
-#include <PCU.h>
+#include "maMatch.h"
 
 namespace ma {
 
@@ -44,7 +45,7 @@ static double interpolateParametricCoordinate(
   if (span < (period/2))
     return (1-t)*a + t*b;
   a += period;
-  double result = (1-t)*b + t*a;
+  double result = (1-t)*a + t*b;
   if (result > range[1])
     result -= period;
   assert(result > range[0]);
@@ -69,6 +70,19 @@ static void interpolateParametricCoordinates(
   }
 }
 
+void transferParametricBetween(
+    Mesh* m,
+    Model* g,
+    Entity* v[2],
+    double t,
+    Vector& p)
+{
+  Vector ep[2];
+  for (int i=0; i < 2; ++i)
+    m->getParamOn(g,v[i],ep[i]);
+  interpolateParametricCoordinates(m,g,t,ep[0],ep[1],p);
+}
+
 void transferParametricOnEdgeSplit(
     Mesh* m,
     Entity* e,
@@ -80,10 +94,23 @@ void transferParametricOnEdgeSplit(
   if (modelDimension==m->getDimension()) return;
   Entity* ev[2];
   m->getDownward(e,0,ev);
-  Vector ep[2];
-  for (int i=0; i < 2; ++i)
-    m->getParamOn(g,ev[i],ep[i]);
-  interpolateParametricCoordinates(m,g,t,ep[0],ep[1],p);
+  transferParametricBetween(m, g, ev, t, p);
+}
+
+void transferParametricOnQuadSplit(
+    Mesh* m,
+    Entity* quad,
+    Entity* v01,
+    Entity* v32,
+    double y,
+    Vector& p)
+{
+  Model* g = m->toModel(quad);
+  int modelDimension = m->getModelType(g);
+  if (modelDimension==m->getDimension()) return;
+  Entity* v[2];
+  v[0] = v01; v[1] = v32;
+  transferParametricBetween(m, g, v, y, p);
 }
 
 static void getSnapPoint(Mesh* m, Entity* v, Vector& x)
@@ -199,14 +226,18 @@ void snap(Adapt* a)
 {
   if ( ! a->input->shouldSnap)
     return;
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   Tag* tag;
+  /* we are starting to support a few operations on matched
+     meshes, including snapping+UR. this should prevent snapping
+     from modifying any matched entities */
+  preventMatchedCavityMods(a);
   long targets = tagVertsToSnap(a, tag);
   long success = snapTaggedVerts(a, tag);
   snapLayer(a, tag);
   apf::removeTagFromDimension(a->mesh, tag, 0);
   a->mesh->destroyTag(tag);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   print("snapped in %f seconds: %ld targets, %ld non-layer snaps",
     t1 - t0, targets, success);
 }

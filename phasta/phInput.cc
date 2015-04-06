@@ -15,11 +15,20 @@ static void setDefaults(Input& in)
   in.recursivePtn = -1;
   in.recursiveUR = 1;
   in.parmaPtn = 0; // No Parma by default
+  in.displacementMigration = 0; // Do not migrate displacement field by default
   in.dwalMigration = 0; // Do not migrate dwal field by default
   in.buildMapping = 0; // Do not build the mapping field by default
   in.elementsPerMigration = 1000*1000; // 100k elms per round
   in.threaded = 1;
+  in.initBubbles = 0;
+  in.formElementGraph = 0;
   in.restartFileName = "restart";
+  in.phastaIO = 1;
+}
+
+Input::Input()
+{
+  setDefaults(*this);
 }
 
 typedef std::map<std::string, std::string*> StringMap;
@@ -48,7 +57,7 @@ static void formMaps(Input& in, StringMap& stringMap, IntMap& intMap)
   intMap["internalBCNodes"] = &in.internalBCNodes;
   intMap["WRITEASC"] = &in.writeDebugFiles;
   intMap["phastaIO"] = &in.phastaIO;
-  intMap["numTotParts"] = &in.numTotParts;
+  intMap["splitFactor"] = &in.splitFactor;
   intMap["SolutionMigration"] = &in.solutionMigration;
   intMap["DisplacementMigration"] = &in.displacementMigration;
   intMap["isReorder"] = &in.isReorder;
@@ -61,6 +70,8 @@ static void formMaps(Input& in, StringMap& stringMap, IntMap& intMap)
   intMap["buildMapping"] = &in.buildMapping;
   intMap["elementsPerMigration"] = &in.elementsPerMigration;
   intMap["threaded"] = &in.threaded;
+  intMap["initBubbles"] = &in.initBubbles;
+  intMap["formElementGraph"] = &in.formElementGraph;
 }
 
 template <class T>
@@ -121,7 +132,7 @@ static void validate(Input& in)
   assert( ! (in.buildMapping && in.adaptFlag));
 }
 
-Input::Input(const char* filename)
+void Input::load(const char* filename)
 {
   setDefaults(*this);
   std::map<std::string, std::string*> stringMap;

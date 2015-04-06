@@ -17,7 +17,12 @@ static void* mds_realloc(void* p, size_t n)
 {
   if ((!p)&&(!n))
     return NULL;
-  p = realloc(p,n);
+  if (n)
+    p = realloc(p,n);
+  else {
+    free(p);
+    p = NULL;
+  }
   assert((p) || (!n));
   return p;
 }
@@ -35,16 +40,18 @@ int const mds_dim[MDS_TYPES] =
 ,3 /* MDS_WEDGE */
 ,3 /* MDS_PYRAMID */
 ,3 /* MDS_TETRAHEDRON */
+,3 /* MDS_HEXAHEDRON */
 };
 
 int const mds_degree[MDS_TYPES][4] =
-{{1,0,0,0} /* MDS_VERTEX */
-,{2,1,0,0} /* MDS_EDGE */
-,{3,3,1,0} /* MDS_TRIANGLE */
-,{4,4,1,0} /* MDS_QUADRILATERAL */
-,{6,9,5,1} /* MDS_WEDGE */
-,{5,8,5,1} /* MDS_PYRAMID */
-,{4,6,4,1} /* MDS_TETRAHEDRON */
+{{1, 0,0,0} /* MDS_VERTEX */
+,{2, 1,0,0} /* MDS_EDGE */
+,{3, 3,1,0} /* MDS_TRIANGLE */
+,{4, 4,1,0} /* MDS_QUADRILATERAL */
+,{6, 9,5,1} /* MDS_WEDGE */
+,{5, 8,5,1} /* MDS_PYRAMID */
+,{4, 6,4,1} /* MDS_TETRAHEDRON */
+,{8,12,6,1} /* MDS_HEXAHEDRON */
 };
 
 static int const e0[] = {MDS_VERTEX,MDS_VERTEX};
@@ -126,6 +133,29 @@ static int const P21[] = {0,1,0,2,0,3
                          ,0,4,1,4,1,2
                          ,2,3,3,4};
 
+static int const H0[] = {MDS_VERTEX,MDS_VERTEX,MDS_VERTEX,MDS_VERTEX
+                        ,MDS_VERTEX,MDS_VERTEX,MDS_VERTEX,MDS_VERTEX};
+static int const H1[] = {MDS_EDGE,MDS_EDGE,MDS_EDGE,MDS_EDGE
+                        ,MDS_EDGE,MDS_EDGE,MDS_EDGE,MDS_EDGE
+                        ,MDS_EDGE,MDS_EDGE,MDS_EDGE,MDS_EDGE};
+static int const H2[] = {MDS_QUADRILATERAL,MDS_QUADRILATERAL,MDS_QUADRILATERAL
+                        ,MDS_QUADRILATERAL,MDS_QUADRILATERAL,MDS_QUADRILATERAL};
+
+static int const H01[] = {0,1,1,2,2,3,3,0
+                         ,0,4,1,5,2,6,3,7
+                         ,4,5,5,6,6,7,7,4};
+static int const H10[] = {0,3,0,1,1, 2,2, 3
+                         ,4,8,5,9,6,10,7,11};
+static int const H12[] = {3,2, 1, 0
+                         ,0,5, 8, 4
+                         ,1,6, 9, 5
+                         ,2,7,10, 6
+                         ,3,4,11, 7
+                         ,8,9,10,11};
+static int const H21[] = {0,1,0,2,0,3,0,4
+                         ,1,4,1,2,2,3,3,4
+                         ,1,5,2,5,3,5,4,5};
+
 int const* mds_types[MDS_TYPES][4] =
 {{0 ,0 ,0 ,0}
 ,{e0,0 ,0 ,0}
@@ -134,6 +164,7 @@ int const* mds_types[MDS_TYPES][4] =
 ,{W0,W1,W2,0}
 ,{P0,P1,P2,0}
 ,{T0,T1,T2,0}
+,{H0,H1,H2,0}
 };
 static int const* convs[MDS_TYPES][4][4] =
 {{{0,0  ,0,0},{0  ,0,0  ,0},{0,0  ,0,0},{0,0,0,0}}
@@ -143,6 +174,7 @@ static int const* convs[MDS_TYPES][4][4] =
 ,{{0,W01,0,0},{W10,0,W12,0},{0,W21,0,0},{0,0,0,0}}
 ,{{0,P01,0,0},{P10,0,P12,0},{0,P21,0,0},{0,0,0,0}}
 ,{{0,T01,0,0},{T10,0,T12,0},{0,T21,0,0},{0,0,0,0}}
+,{{0,H01,0,0},{H10,0,H12,0},{0,H21,0,0},{0,0,0,0}}
 };
 
 static void resize_down(struct mds* m, int from, int to,
@@ -170,8 +202,10 @@ static void resize_up(struct mds* m, int from, int to,
       REALLOC(m->up[from][t],new_cap[t] * deg);
     } else if (mds_dim[t] == from) {
       REALLOC(m->first_up[to][t],new_cap[t]);
-      for (i = old_cap[t]; i < new_cap[t]; ++i)
+      for (i = old_cap[t]; i < new_cap[t]; ++i) {
+        assert(m->first_up[to][t]);
         m->first_up[to][t][i] = MDS_NONE;
+      }
     }
   }
 }
@@ -208,7 +242,7 @@ static void resize_adjacencies(struct mds* m, mds_id old_cap[MDS_TYPES])
       resize_adjacency(m,i,j,old_cap,m->cap);
 }
 
-static void resize_free(struct mds* m, mds_id old_cap[MDS_TYPES])
+static void resize_free(struct mds* m)
 {
   int t;
   for (t = 0; t < MDS_TYPES; ++t)
@@ -218,7 +252,7 @@ static void resize_free(struct mds* m, mds_id old_cap[MDS_TYPES])
 static void resize(struct mds* m, mds_id old_cap[MDS_TYPES])
 {
   resize_adjacencies(m,old_cap);
-  resize_free(m,old_cap);
+  resize_free(m);
 }
 
 void mds_create(struct mds* m, int d, mds_id cap[MDS_TYPES])
@@ -283,9 +317,8 @@ static void relate_down(struct mds* m, mds_id from, mds_id* to)
   i = INDEX(from);
   to_dim = mds_dim[TYPE(to[0])];
   deg = mds_degree[t][to_dim];
-  for (j = 0; j < deg; ++j) {
+  for (j = 0; j < deg; ++j)
     *at_id(m->down[to_dim],ID(t,i * deg + j)) = to[j];
-  }
 }
 
 static void relate_up(struct mds* m, mds_id e, mds_id node)
@@ -483,6 +516,7 @@ static mds_id common_up(struct mds* m, struct mds_set* s, int d)
   struct mds_set found;
   struct mds_set adjacent;
   int i;
+  assert(0 < s->n);
   for (i = 0; i < s->n; ++i)
     if (s->e[i] == MDS_NONE)
       return MDS_NONE;
@@ -650,8 +684,10 @@ static void convert_up(struct mds* m,
     int t, int make)
 {
   struct mds_set sets[2];
-  struct mds_set* s[2] = {sets,sets+1};
+  struct mds_set* s[2];
   struct mds_set* tmp;
+  s[0] = sets;
+  s[1] = sets + 1;
   copy_set(s[0],from_s);
   for (; from_dim != to_dim; ++from_dim) {
     step_up(m,s[0],from_dim,s[1],from_dim + 1,t,make);
@@ -668,8 +704,10 @@ static void convert_down(struct mds* m,
     int t)
 {
   struct mds_set sets[2];
-  struct mds_set* s[2] = {sets,sets+1};
+  struct mds_set* s[2];
   struct mds_set* tmp;
+  s[0] = sets;
+  s[1] = sets + 1;
   copy_set(s[0],from_s);
   for (; from_dim != to_dim; --from_dim) {
     step_down(m,s[0],from_dim,s[1],from_dim - 1,t);
@@ -684,6 +722,7 @@ static void check_set(struct mds* m, struct mds_set* s)
 {
   int i;
   int dim;
+  assert(0 < s->n);
   for (i = 0; i < s->n; ++i)
     check_ent(m,s->e[i]);
   dim = mds_dim[TYPE(s->e[0])];
@@ -737,8 +776,8 @@ static void expand_once(struct mds* m, struct mds_set* from, struct mds_set* to)
 {
   int i;
   int dim;
-  to->n = 0;
   struct mds_set up;
+  to->n = 0;
   assert(from->n);
   dim = mds_dim[TYPE(from->e[0])];
   for (i = 0; i < from->n; ++i) {
@@ -750,9 +789,11 @@ static void expand_once(struct mds* m, struct mds_set* from, struct mds_set* to)
 static void get_up(struct mds* m, mds_id e, int d, struct mds_set* out)
 {
   struct mds_set sets[2];
-  struct mds_set* s[2] = {sets, sets+1};
+  struct mds_set* s[2];
   struct mds_set* tmp;
   int dim;
+  s[0] = sets;
+  s[1] = sets + 1;
   s[0]->n = 1;
   s[0]->e[0] = e;
   dim = mds_dim[TYPE(e)];
@@ -785,11 +826,14 @@ void mds_get_adjacent(struct mds* m, mds_id e, int d, struct mds_set* s)
   }
   check_ent(m,e);
   e_dim = mds_dim[TYPE(e)];
-  if ((e_dim == d) || m->mrm[e_dim][d])
-    return look(m,e,d,s);
-  if (d < e_dim)
-    return get_down(m,e,d,s);
-  return get_up(m,e,d,s);
+  if ((e_dim == d) || m->mrm[e_dim][d]) {
+    look(m,e,d,s);
+    return;
+  } if (d < e_dim) {
+    get_down(m,e,d,s);
+    return;
+  }
+  get_up(m,e,d,s);
 }
 
 static mds_id skip(struct mds* m, mds_id e)
@@ -855,4 +899,31 @@ int mds_has_up(struct mds* m, mds_id e)
   if (d == m->d)
     return 0;
   return *at_id(m->first_up[d + 1],e) != MDS_NONE;
+}
+
+static void increase_dimension(struct mds* m)
+{
+  int old_d;
+  old_d = m->d;
+  ++(m->d);
+  assert(old_d < m->d);
+  mds_add_adjacency(m, old_d, m->d);
+  mds_add_adjacency(m, m->d, old_d);
+}
+
+static void decrease_dimension(struct mds* m)
+{
+  int old_d;
+  old_d = m->d;
+  --(m->d);
+  mds_remove_adjacency(m, old_d, m->d);
+  mds_remove_adjacency(m, m->d, old_d);
+}
+
+void mds_change_dimension(struct mds* m, int d)
+{
+  while (m->d < d)
+    increase_dimension(m);
+  while (m->d > d)
+    decrease_dimension(m);
 }

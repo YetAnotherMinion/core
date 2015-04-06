@@ -8,8 +8,8 @@
 
 *******************************************************************************/
 
-#ifndef MDS_PART_H
-#define MDS_PART_H
+#ifndef APF_PM_H
+#define APF_PM_H
 
 #include <apfMesh2.h>
 
@@ -40,7 +40,8 @@ void updateOwners(Mesh* m, PM& ps);
 
 void stitchMesh(Mesh2* m);
 
-void scalePM(PM& pm, int factor);
+void remapPM(PM& pm,
+    int (*map)(int, void*), void* user);
 
 }
 

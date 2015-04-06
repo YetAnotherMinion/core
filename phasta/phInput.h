@@ -9,7 +9,8 @@ namespace ph {
 class Input
 {
   public:
-    Input(const char* filename);
+    Input();
+    void load(const char* filename);
     int globalP;
     int timeStepNumber;
     int ensa_dof;
@@ -30,7 +31,7 @@ class Input
     int internalBCNodes;
     int writeDebugFiles;
     int phastaIO;
-    int numTotParts;
+    int splitFactor;
     int solutionMigration;
     int displacementMigration;
     int isReorder;
@@ -45,6 +46,8 @@ class Input
     int buildMapping;
     int elementsPerMigration;
     int threaded;
+    int initBubbles;
+    int formElementGraph;
 };
 
 int countNaturalBCs(Input& in);

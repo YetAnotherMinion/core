@@ -105,7 +105,7 @@ class TagDataOf : public FieldDataOf<T>
   public:
     virtual void init(FieldBase* f)
     {
-      FieldData::field = f;
+      this->FieldData::field = f;
       mesh = f->getMesh();
       tagData.init(
                 f->getName(),
@@ -124,8 +124,13 @@ class TagDataOf : public FieldDataOf<T>
     {
       helper.set(mesh,e,tagData.getTag(e),data);
     }
-    virtual bool isFrozen() {
+    virtual bool isFrozen()
+    {
       return false;
+    }
+    virtual FieldData* clone()
+    {
+      return new TagDataOf<T>();
     }
   private:
     Mesh* mesh;

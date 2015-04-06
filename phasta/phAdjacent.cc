@@ -10,9 +10,10 @@ void orderForPhasta(int t, apf::MeshEntity** vin, apf::MeshEntity** vout)
   /* phasta's tet orders the curl of the bottom face outward */
   /* the first face is the bottom face */
   static int const tet_ph2apf[4] = {0,2,1,3};
-  /* same for the pyramid, the quad face curls outward */
-  /* the first faces are the bottom face and the face {0,1,4} */
-  static int const pyr_ph2apf[5] = {1,0,3,2,4};
+  /* despite what some comments in phParAdapt say, the pyramid
+     quad face curls inward by their output ordering, making
+     this the identity map */
+  static int const pyr_ph2apf[5] = {0,1,2,3,4};
   /* prism ordering is identical, cool. */
   static int const pri_ph2apf[6] = {0,1,2,3,4,5};
   static int const* const ph2apf[apf::Mesh::TYPES] =
@@ -29,6 +30,23 @@ void orderForPhasta(int t, apf::MeshEntity** vin, apf::MeshEntity** vout)
   for (int i = 0; i < nv; ++i)
     vout[i] = vin[ph2apf[t][i]];
 }
+
+/* phasta defines its faces with the same local vertex indices as
+   we define our faces, but their local vertex indices differ
+   as seen above. this results in the following table of
+   element face positions from apf to phasta */
+
+static int const tet_face_apf2ph[4] = {0,3,2,1};
+int const* const face_apf2ph[apf::Mesh::TYPES] = {
+  0,   //vertex
+  0,   //edge
+  0,   //triangle
+  0,   //quad
+  tet_face_apf2ph,
+  0,   //hex
+  0,   //prism
+  0,   //pyramid
+};
 
 void getVertices(apf::Mesh* m, apf::MeshEntity* e, apf::MeshEntity** v)
 {

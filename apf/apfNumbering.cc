@@ -5,13 +5,13 @@
  * BSD license as described in the LICENSE file in the top-level directory.
  */
 
+#include <PCU.h>
 #include "apfNumbering.h"
 #include "apfNumberingClass.h"
 #include "apfField.h"
 #include "apfMesh.h"
 #include "apfShape.h"
 #include "apfTagData.h"
-#include <PCU.h>
 
 namespace apf {
 
@@ -46,9 +46,9 @@ template <class T>
 void NumberingOf<T>::init(Field* f)
 {
   field = f;
-  std::string name = f->getName();
-  name += "_num";
-  init(name.c_str(),
+  std::string nm = f->getName();
+  nm += "_num";
+  init(nm.c_str(),
       f->getMesh(),
       f->getShape(),
       f->countComponents());
@@ -64,16 +64,16 @@ FieldDataOf<T>* NumberingOf<T>::getData()
 }
 
 template <class T>
-void NumberingOf<T>::getAll(MeshEntity* e, T* data)
+void NumberingOf<T>::getAll(MeshEntity* e, T* dat)
 {
   int n = countValuesOn(e);
   FieldDataOf<T>* fieldData = getData();
   if (fieldData->hasEntity(e))
-    fieldData->get(e,data);
+    fieldData->get(e,dat);
   else
   { //default initialization to free and not numbered
     for (int i=0; i < n; ++i)
-      data[i] = FREE_BUT_NOT_NUMBERED;
+      dat[i] = FREE_BUT_NOT_NUMBERED;
   }
 }
 
@@ -145,6 +145,7 @@ bool isNumbered(Numbering* n, MeshEntity* e, int node, int component)
 void number(Numbering* n, MeshEntity* e, int node, int component, int number)
 {
   assert( ! isFixed(n,e,node,component));
+  assert(number >= 0);
   n->set(e,node,component,number);
 }
 
@@ -202,16 +203,22 @@ int countFixed(Numbering* n)
   return num_fixed;
 }
 
-void synchronize(Numbering * n)
+void synchronize(Numbering * n, Sharing* shr)
 {
-  n->getData()->synchronize();
+  n->getData()->synchronize(shr);
 }
+
+struct NoSharing : public Sharing
+{
+  bool isOwned(MeshEntity*) {return true;}
+  virtual void getCopies(MeshEntity*, CopyArray&) {}
+};
 
 Numbering* numberNodes(
     Mesh* mesh,
     const char* name,
     FieldShape* s,
-    bool ownedOnly)
+    Sharing* shr)
 {
   Numbering* n = createNumbering(mesh,name,s,1);
   int i=0;
@@ -223,7 +230,7 @@ Numbering* numberNodes(
     MeshEntity* e;
     while ((e = mesh->iterate(it)))
     {
-      if (ownedOnly && ( ! isOriginal(mesh,e)))
+      if ( ! shr->isOwned(e))
         continue;
       int nnodes = n->countNodesOn(e);
       for (int node=0; node < nnodes; ++node)
@@ -231,13 +238,15 @@ Numbering* numberNodes(
     }
     mesh->end(it);
   }
+  delete shr;
   return n;
 }
 
 Numbering* numberOwnedDimension(Mesh* mesh, const char* name, int dim)
 {
   FieldShape* s = getConstant(dim);
-  return numberNodes(mesh, name, s, true);
+  Sharing* shr = getSharing(mesh);
+  return numberNodes(mesh, name, s, shr);
 }
 
 Numbering* numberElements(Mesh* mesh, const char* name)
@@ -249,17 +258,21 @@ Numbering* numberOverlapNodes(Mesh* mesh, const char* name, FieldShape* s)
 {
   if (!s)
     s = mesh->getShape();
-  return numberNodes(mesh,name,s,false);
+  Sharing* shr = new NoSharing();
+  return numberNodes(mesh, name, s, shr);
 }
 
 Numbering* numberOwnedNodes(
     Mesh* mesh,
     const char* name,
-    FieldShape* s)
+    FieldShape* s,
+    Sharing* shr)
 {
   if (!s)
     s = mesh->getShape();
-  return numberNodes(mesh,name,s,true);
+  if (!shr)
+    shr = getSharing(mesh);
+  return numberNodes(mesh, name, s, shr);
 }
 
 class Counter : public FieldOp
@@ -289,6 +302,11 @@ static int countFieldNodes(FieldBase* f)
 }
 
 int countNodes(Numbering* n)
+{
+  return countFieldNodes(n);
+}
+
+int countNodes(GlobalNumbering* n)
 {
   return countFieldNodes(n);
 }
@@ -356,13 +374,12 @@ static void synchronizeEntitySet(
         PCU_COMM_PACK(rit->first,rit->second);
     }
   PCU_Comm_Send();
-  while (PCU_Comm_Listen())
-    while ( ! PCU_Comm_Unpacked())
-    {
-      MeshEntity* e;
-      PCU_COMM_UNPACK(e);
-      set.insert(e);
-    }
+  while (PCU_Comm_Receive())
+  {
+    MeshEntity* e;
+    PCU_COMM_UNPACK(e);
+    set.insert(e);
+  }
 }
 
 static void getNodesOnEntitySet(
@@ -406,7 +423,18 @@ GlobalNumbering* createGlobalNumbering(
 {
   GlobalNumbering* n = new GlobalNumbering();
   n->init(name,mesh,shape,1);
+  mesh->addGlobalNumbering(n);
   return n;
+}
+
+FieldShape* getShape(GlobalNumbering* n)
+{
+  return n->getShape();
+}
+
+const char* getName(GlobalNumbering* n)
+{
+  return n->getName();
 }
 
 Mesh* getMesh(GlobalNumbering* n)
@@ -433,12 +461,6 @@ int getElementNumbers(GlobalNumbering* n, MeshEntity* e,
 static long exscan(long x)
 {
   PCU_Exscan_Longs(&x,1);
-  return x;
-}
-
-static int exscan(int x)
-{
-  PCU_Exscan_Ints(&x,1);
   return x;
 }
 
@@ -478,6 +500,12 @@ static void globalize(GlobalNumbering* n)
   g.run(n);
 }
 
+void globalize(Numbering* n)
+{
+  Globalizer<int> g;
+  g.run(n);
+}
+
 GlobalNumbering* makeGlobal(Numbering* n)
 {
   std::string name = n->getName();
@@ -508,25 +536,20 @@ GlobalNumbering* makeGlobal(Numbering* n)
   return gn;
 }
 
-void synchronize(GlobalNumbering * n)
+void synchronize(GlobalNumbering* n, Sharing* shr)
 {
-  n->getData()->synchronize();
+  n->getData()->synchronize(shr);
 }
 
 void destroyGlobalNumbering(GlobalNumbering* n)
 {
+  n->getMesh()->removeGlobalNumbering(n);
   delete n;
 }
 
 void getNodes(GlobalNumbering* n, DynamicArray<Node>& nodes)
 {
   getFieldNodes(n,nodes);
-}
-
-void globalize(Numbering* n)
-{
-  Globalizer<int> g;
-  g.run(n);
 }
 
 }

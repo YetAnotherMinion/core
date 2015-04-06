@@ -1,10 +1,10 @@
+#include <PCU.h>
 #include "phBC.h"
 #include <apf.h>
 #include <apfMesh.h>
 #include <fstream>
 #include <sstream>
-
-#include <PCU.h>
+#include <gmi.h>
 
 namespace ph {
 
@@ -62,15 +62,16 @@ static void readBC(std::string const& line, BCs& bcs)
 
 void readBCs(const char* filename, BCs& bcs)
 {
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   std::ifstream file(filename);
+  assert(file.is_open()); //check if the spj file could be opened successfully
   std::string line;
   while (std::getline(file, line, '\n')) {
     if (line[0] == '#')
       continue;
     readBC(line, bcs);
   }
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   if (!PCU_Comm_Self())
     printf("\"%s\" loaded in %f seconds\n", filename, t1 - t0);
 }
@@ -84,71 +85,70 @@ struct KnownBC
     struct KnownBC const& bc, double* inval);
 };
 
-static void applyScalar(double* values, int* bits,
+static bool applyBit2(int* bits, int bit)
+{
+  if (bit == -1)
+    return true;
+  int mask = (1<<bit);
+  if (*bits & mask)
+    return false;
+  *bits |= mask;
+  return true;
+}
+
+static void applyBit(double*, int* bits,
+    KnownBC const& bc, double*)
+{
+  applyBit2(bits, bc.bit);
+}
+
+static void applyScalar2(double* values, int* bits,
     double value, int offset, int bit)
 {
-  if (offset != -1)
+  bool alreadySet = ! applyBit2(bits, bit);
+  /* only zero values override existing values */
+  if (( ! alreadySet) || ( ! value))
     values[offset] = value;
-  if (bit != -1)
-    *bits |= (1<<bit);
 }
 
 static void applyScalar(double* outval, int* bits,
     KnownBC const& bc, double* inval)
 {
-  applyScalar(outval, bits, *inval, bc.offset, bc.bit);
+  applyScalar2(outval, bits, *inval, bc.offset, bc.bit);
 }
 
-static void applyMagnitude(double* values, KnownBC const& bc, double v)
+static void applyVector2(double* values, int* bits,
+    double* inval, int offset, int bit)
 {
-  values[bc.offset + 3] = v;
-}
-
-static void applyComp1(double* values, int* bits,
-    KnownBC const& bc, double* inval)
-{
-  int best = 0;
-  for (int i = 1; i < 3; ++i)
-    if (fabs(inval[i]) > fabs(inval[best]))
-      best = i;
-  apf::Vector3 v(inval);
-  double mag = v.getLength();
-  v = v / mag;
-  applyScalar(values, bits, v[best], bc.offset + best, bc.bit + best);
-  applyMagnitude(values, bc, mag);
-}
-
-static void applyComp3(double* values, int* bits,
-    KnownBC const& bc, double* inval)
-{
-  apf::Vector3 v(inval);
-  double mag = v.getLength();
-  v = v / mag;
+  bool alreadySet = ! applyBit2(bits, bit);
+  if (alreadySet)
+    /* nonzero vectors cannot override */
+    if (inval[0] || inval[1] || inval[2])
+      return;
   for (int i = 0; i < 3; ++i)
-    applyScalar(values, bits, v[i], bc.offset + i, bc.bit + i);
-  applyMagnitude(values, bc, mag);
+    values[offset + i] = inval[i];
 }
 
-static void applyVector(double* values, int* bits,
+static void applyVector(double* outval, int* bits,
     KnownBC const& bc, double* inval)
 {
-  for (int i = 0; i < 3; ++i)
-    values[bc.offset + i] = inval[i];
-  *bits |= (1<<bc.bit);
+  applyVector2(outval, bits, inval, bc.offset, bc.bit);
 }
 
-static void applySurfID(double* values, int* bits,
-    KnownBC const& bc, double* inval)
+static void applySurfID(double*, int* bits,
+    KnownBC const&, double* inval)
 {
   bits[1] = *inval;
 }
 
-static KnownBC const essentialBCs[9] = {
+static KnownBC const essentialBCs[7] = {
   {"density",          0, 0, applyScalar},
   {"temperature",      1, 1, applyScalar},
   {"pressure",         2, 2, applyScalar},
-  {"comp 1",           3, 3, applyComp1},
-  {"comp 3",           3, 3, applyComp3},
+/*  these conditions are too complex to be dealt with
+    here, see phConstraint.cc */
+//{"comp1",           3, 3, applyComp1},
+//{"comp3",           3, 3, applyComp3},
   {"scalar_1",        12, 6, applyScalar},
   {"scalar_2",        13, 7, applyScalar},
   {"scalar_3",        14, 8, applyScalar},
@@ -160,7 +160,7 @@ static KnownBC const naturalBCs[10] = {
   {"natural pressure", 1, 1, applyScalar},
   {"traction vector",  2, 2, applyVector},
   {"heat flux",        5, 3, applyScalar},
-  {"turbulence wall", -1, 4, applyScalar},
+  {"turbulence wall", -1, 4, applyBit},
   {"scalar_1 flux",    6, 5, applyScalar},
   {"scalar_2 flux",    7, 6, applyScalar},
   {"scalar_3 flux",    8, 7, applyScalar},
@@ -168,62 +168,104 @@ static KnownBC const naturalBCs[10] = {
   {"surf ID",         -1,-1, applySurfID},
 };
 
-double* checkForBC(int dim, int tag, BCs& bcs, KnownBC const& kbc)
+static KnownBC const solutionBCs[7] = {
+  {"initial pressure",         0,-1, applyScalar},
+  {"initial velocity",         1,-1, applyVector},
+  {"initial temperature",      4,-1, applyScalar},
+  {"initial scalar_1",         5,-1, applyScalar},
+  {"initial scalar_2",         6,-1, applyScalar},
+  {"initial scalar_3",         7,-1, applyScalar},
+  {"initial scalar_4",         8,-1, applyScalar},
+};
+
+bool hasBC(BCs& bcs, std::string const& name)
 {
-  std::string name(kbc.name);
-  if (!bcs.fields.count(name))
-    return 0;
-  FieldBCs& fbcs = bcs.fields[name];
+  return bcs.fields.count(name);
+}
+
+double* getValuesOn(gmi_model* gm, FieldBCs& bcs, gmi_ent* ge)
+{
   BC key;
-  key.tag = tag;
-  key.dim = dim;
-  FieldBCs::Set::iterator it = fbcs.bcs.find(key);
-  if (it == fbcs.bcs.end())
+  key.tag = gmi_tag(gm, ge);
+  key.dim = gmi_dim(gm, ge);
+  FieldBCs::Set::iterator it = bcs.bcs.find(key);
+  if (it == bcs.bcs.end())
     return 0;
   BC& bc = const_cast<BC&>(*it);
   return bc.values;
 }
 
-bool applyBCs(apf::Mesh* m, apf::MeshEntity* e,
+/* starting from the current geometric entity,
+   try to find attribute (kbc) attached to
+   geometric entities by searching all upward
+   adjacencies.
+   we use depth first search starting from
+   the model entity of origin, using upward
+   adjacencies as graph edges.
+   if an attached attribute is found on an
+   entity, the search continues without looking
+   at its upward adjacencies */
+static bool applyBC(gmi_model* gm, gmi_ent* ge,
+    FieldBCs& bcs,
+    KnownBC const& kbc,
+    double* values, int* bits)
+{
+  double* v = getValuesOn(gm, bcs, ge);
+  if (v) {
+    kbc.apply(values, bits, kbc, v);
+    return true;
+  }
+  bool appliedAny = false;
+  gmi_set* up = gmi_adjacent(gm, ge, gmi_dim(gm, ge) + 1);
+  for (int i = 0; i < up->n; ++i)
+    if ( applyBC(gm, up->e[i], bcs, kbc, values, bits) )
+      appliedAny = true;
+  gmi_free_set(up);
+  return appliedAny;
+}
+
+static bool applyBCs(gmi_model* gm, gmi_ent* ge,
     BCs& appliedBCs,
     KnownBC const* knownBCs,
     int nKnownBCs,
     double* values, int* bits)
 {
-  apf::ModelEntity* me = m->toModel(e);
-  int md = m->getModelType(me);
-  int mt = m->getModelTag(me);
   bool appliedAny = false;
   for (int i = 0; i < nKnownBCs; ++i) {
-    double* bcvalues = checkForBC(md, mt, appliedBCs, knownBCs[i]);
-    if (!bcvalues)
+    std::string s(knownBCs[i].name);
+    if ( ! hasBC(appliedBCs, s))
       continue;
-    knownBCs[i].apply(values, bits, knownBCs[i], bcvalues);
-    appliedAny = true;
+    FieldBCs& fbcs = appliedBCs.fields[s];
+    if ( applyBC(gm, ge, fbcs, knownBCs[i], values, bits) )
+      appliedAny = true;
   }
   return appliedAny;
 }
 
-bool applyNaturalBCs(apf::Mesh* m, apf::MeshEntity* f,
+bool applyNaturalBCs(gmi_model* gm, gmi_ent* ge,
     BCs& appliedBCs, double* values, int* bits)
 {
-  return applyBCs(m, f, appliedBCs, naturalBCs,
+  return applyBCs(gm, ge, appliedBCs, naturalBCs,
       sizeof(naturalBCs) / sizeof(KnownBC), values, bits);
 }
 
-bool applyEssentialBCs(apf::Mesh* m, apf::MeshEntity* v,
+bool applyEssentialBCs(gmi_model* gm, gmi_ent* ge,
     BCs& appliedBCs, double* values, int* bits)
 {
-  return applyBCs(m, v, appliedBCs, essentialBCs,
+  bool didSimple = applyBCs(gm, ge, appliedBCs, essentialBCs,
       sizeof(essentialBCs) / sizeof(KnownBC), values, bits);
+  /* the complexity of velocity constraints is delegated to
+     the code in phConstraint.cc */
+  bool didVelocity = applyVelocityConstaints(gm, appliedBCs,
+      ge, values, bits);
+  return didSimple || didVelocity;
 }
 
-void getBCFaces(apf::Mesh* m, BCs& bcs, std::set<apf::ModelEntity*>& faces)
+bool applySolutionBCs(gmi_model* gm, gmi_ent* ge,
+    BCs& appliedBCs, double* values)
 {
-  APF_ITERATE(BCs::Map, bcs.fields, it)
-    APF_ITERATE(FieldBCs::Set, it->second.bcs, it2)
-      if (it2->dim == 2)
-        faces.insert(m->findModelEntity(it2->dim, it2->tag));
+  return applyBCs(gm, ge, appliedBCs, solutionBCs,
+      sizeof(solutionBCs) / sizeof(KnownBC), values, 0);
 }
 
 }

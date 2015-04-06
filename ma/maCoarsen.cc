@@ -7,11 +7,11 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "maCoarsen.h"
 #include "maAdapt.h"
 #include "maCollapse.h"
 #include "maOperator.h"
-#include <PCU.h>
 
 namespace ma {
 
@@ -53,7 +53,7 @@ class CollapseChecker : public apf::CavityOp
     int modelDimension;
 };
 
-static void checkAllEdgeCollapses(Adapt* a, int modelDimension)
+void checkAllEdgeCollapses(Adapt* a, int modelDimension)
 {
   CollapseChecker checker(a,modelDimension);
   checker.applyToDimension(1);
@@ -89,7 +89,7 @@ class IndependentSetFinder : public apf::CavityOp
     Entity* vertex;
 };
 
-static void findIndependentSet(Adapt* a)
+void findIndependentSet(Adapt* a)
 {
   IndependentSetFinder finder(a);
   finder.applyToDimension(0);
@@ -165,7 +165,7 @@ long markEdgesToCollapse(Adapt* a)
 
 bool coarsen(Adapt* a)
 {
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   --(a->coarsensLeft);
   long count = markEdgesToCollapse(a);
   if ( ! count)
@@ -181,7 +181,7 @@ bool coarsen(Adapt* a)
     successCount += collapseAllEdges(a,modelDimension);
   }
   PCU_Add_Longs(&successCount,1);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   print("coarsened %li edges in %f seconds",successCount,t1-t0);
   return true;
 }

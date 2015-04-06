@@ -3,6 +3,9 @@
 The SCOREC Core is a set of C/C++ libraries for unstructured mesh
 simulations on supercomputers.
 
+For more information, start at our
+[wiki page](https://github.com/SCOREC/core/wiki)
+
 ### What is in this repository? ###
 
 * PCU: Communication, threading, and file IO built on MPI 
@@ -15,6 +18,7 @@ simulations on supercomputers.
 * STK: Conversion from APF meshes to Sandia's STK meshes
 * ZOLTAN: Interface to run Sandia's Zoltan code on APF meshes
 * PHASTA: Tools and file formats related to the PHASTA fluid solver
+* MPAS: Tools and file formats for the MPAS-Ocean code
 
 ### How do I get set up? ###
 
@@ -35,8 +39,11 @@ simulations on supercomputers.
 * Don't break the build
 * See the `STYLE` file
 * If in doubt, make a branch
+* Run the ctest suite
 
 ### Who do I talk to? ###
 
+* mailing list <scorec-pumi@lists.rpi.edu>
+  (subscribe at https://lists.sympa.rpi.edu/wws/subscribe/scorec-pumi)
 * Dan Ibanez <ibaned@rpi.edu>
 * Cameron Smith <smithc11@rpi.edu>

@@ -105,8 +105,8 @@ struct Cubic
       r.n = 1;
     std::complex<double> u[3];
     u[0] = 1;
-    u[1] = std::complex<double>(-1,  sqrt(3)) / 2.;
-    u[2] = std::complex<double>(-1, -sqrt(3)) / 2.;
+    u[1] = std::complex<double>(-1,  std::sqrt(3.)) / 2.;
+    u[2] = std::complex<double>(-1, -std::sqrt(3.)) / 2.;
     double d0 = b * b - 3 * a * c;
     double d1 = 2 * b * b * b
              -  9 * a * b * c
@@ -151,15 +151,15 @@ static double tr(Matrix3x3 const& m)
   return m[0][0] + m[1][1] + m[2][2];
 }
 
-/* wikipedia.org/wiki/Characteristic_polynomial#Characteristic_equation */
+/* http://mathworld.wolfram.com/CharacteristicPolynomial.html */
 static void getCharacteristicPolynomial(Matrix3x3 const& A, Cubic& p)
 {
   double tA = tr(A);
-  double c2 = (1. / 2.) * (tA * tA + tr(A * A));
+  double c2 = (1. / 2.) * (tA * tA - tr(A * A));
   p.a = -1;
   p.b = tA;
   p.c = -c2;
-  p.d = det(A);
+  p.d = getDeterminant(A);
 }
 
 static int getEigenvalues(Matrix3x3 const& A, double* v)
@@ -173,7 +173,7 @@ static int getEigenvalues(Matrix3x3 const& A, double* v)
   return l.n;
 }
 
-static void getEigenvector(Matrix3x3 const& A, double l, Vector3& v)
+static void getEigenvector(Matrix3x3 const& A, double l, Vector<3>& v)
 {
   Matrix3x3 eye(1,0,0,
                 0,1,0,
@@ -197,7 +197,7 @@ static void getEigenvector(Matrix3x3 const& A, double l, Vector3& v)
 }
 
 int eigen(Matrix3x3 const& A,
-          Vector3* eigenVectors,
+          Vector<3>* eigenVectors,
           double* eigenValues)
 {
   int n = getEigenvalues(A, eigenValues);
@@ -206,13 +206,85 @@ int eigen(Matrix3x3 const& A,
   return n;
 }
 
+template <std::size_t M, std::size_t N>
+Matrix<M - 1, N - 1> getMinor(Matrix<M,N> const& A,
+    std::size_t i, std::size_t j)
+{
+  Matrix<N - 1, M - 1> B;
+  std::size_t m = 0;
+  for (std::size_t k = 0; k < M; ++k)
+    if (k != i) {
+      std::size_t n = 0;
+      for (std::size_t l = 0; l < N; ++l)
+        if (l != j) {
+          B[m][n] = A[k][l];
+          ++n;
+        }
+      ++m;
+    }
+  return B;
 }
 
-std::ostream& operator<<(std::ostream& s, apf::Matrix3x3 const& v)
+template <std::size_t M, std::size_t N>
+double getCofactor(Matrix<M,N> const& A, std::size_t i, std::size_t j)
 {
-  s << '\n';
-  s << v[0][0] << ' ' << v[0][1] << ' ' << v[0][2] << '\n';
-  s << v[1][0] << ' ' << v[1][1] << ' ' << v[1][2] << '\n';
-  s << v[2][0] << ' ' << v[2][1] << ' ' << v[2][2] << '\n';
+  Matrix<M - 1, N - 1> B = getMinor(A, i, j);
+  double dM = getDeterminant(B);
+  double sign = ((i + j) % 2) ? -1 : 1;
+  return sign * dM;
+}
+
+template <std::size_t M, std::size_t N>
+double getDeterminant(Matrix<M,N> const& A)
+{
+  double d = 0;
+  for (std::size_t i = 0; i < M; ++i)
+    d += A[i][0] * getCofactor(A, i, 0);
+  return d;
+}
+
+double getDeterminant(Matrix<1,1> const& A)
+{
+  return A[0][0];
+}
+
+template Matrix<1,1> getMinor(Matrix<2,2> const& A, std::size_t i, std::size_t j);
+template Matrix<2,2> getMinor(Matrix<3,3> const& A, std::size_t i, std::size_t j);
+template Matrix<3,3> getMinor(Matrix<4,4> const& A, std::size_t i, std::size_t j);
+
+template double getDeterminant(Matrix<2,2> const& A);
+template double getDeterminant(Matrix<3,3> const& A);
+template double getDeterminant(Matrix<4,4> const& A);
+
+template <std::size_t M, std::size_t N>
+std::ostream& print(std::ostream& s, Matrix<N,M> const& A)
+{
+  for (std::size_t i = 0; i < M; ++i) {
+    for (std::size_t j = 0; j < N; ++j)
+      s << A[i][j] << ' ';
+    s << '\n';
+  }
   return s;
+}
+
+}
+
+std::ostream& operator<<(std::ostream& s, apf::Matrix<1,1> const& A)
+{
+  return apf::print(s, A);
+}
+
+std::ostream& operator<<(std::ostream& s, apf::Matrix<2,2> const& A)
+{
+  return apf::print(s, A);
+}
+
+std::ostream& operator<<(std::ostream& s, apf::Matrix<3,3> const& A)
+{
+  return apf::print(s, A);
+}
+
+std::ostream& operator<<(std::ostream& s, apf::Matrix<4,4> const& A)
+{
+  return apf::print(s, A);
 }

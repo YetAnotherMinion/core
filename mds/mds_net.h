@@ -20,7 +20,7 @@ struct mds_copy {
 
 struct mds_copies {
   int n;
-  struct mds_copy c[];
+  struct mds_copy c[1];
 };
 
 struct mds_net {
@@ -34,6 +34,7 @@ struct mds_links {
   unsigned* p;
   unsigned** l;
 };
+#define MDS_LINKS_INIT {0,0,0,0}
 
 void mds_create_net(struct mds_net* net);
 void mds_destroy_net(struct mds_net* net, struct mds* m);
@@ -62,7 +63,5 @@ void mds_get_local_matches(struct mds_net* net, struct mds* m,
 void mds_set_local_matches(struct mds_net* net, struct mds* m,
                          int t, struct mds_links* ln);
 void mds_free_local_links(struct mds_links* ln);
-
-void mds_scale_net(struct mds_net* net, struct mds* m, int factor);
 
 #endif

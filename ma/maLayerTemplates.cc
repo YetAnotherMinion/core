@@ -1,6 +1,7 @@
 #include "maTemplates.h"
 #include "maAdapt.h"
 #include "maLayer.h"
+#include "maSnap.h"
 
 #include <cstdio>
 
@@ -46,11 +47,10 @@ void splitQuad_4(Refine* r, Entity* q, Entity** v)
   apf::MeshElement* me = apf::createMeshElement(m,q);
   Vector point;
   apf::mapLocalToGlobal(me,xi,point);
-/* TODO: in truth, we could be transferring parametric
-   coordinates here. since we don't support layer side snapping
-   and the transfer logic is non-trivial,
-   this is left alone for now */
-  Entity* cv = buildVertex(a,m->toModel(q),point,Vector(0,0,0));
+  Vector param(0,0,0); //prevents uninitialized values
+  if (a->input->shouldTransferParametric)
+    transferParametricOnQuadSplit(m, q, sv[0] ,sv[2], y, param);
+  Entity* cv = buildVertex(a, m->toModel(q), point, param);
   a->solutionTransfer->onVertex(me,xi,cv);
   a->sizeField->interpolate(me,xi,cv);
   apf::destroyMeshElement(me);
@@ -252,7 +252,7 @@ static void splitSubTet(Refine* r, Entity* p, Entity** v, int code)
     return;
   }
   Entity* v2[4];
-  int tmpl_id = matchToTemplate(r->adapt, TET, v, code, v2);
+  int tmpl_id = matchToTemplate(TET, v, code, v2);
   tet_templates[tmpl_id](r, p, v2);
 }
 
@@ -360,12 +360,13 @@ static void splitPyramid_4_b0(Refine* r, Entity* p, Entity** v)
 static Entity* makePyramidCentroid(Adapt* a, Entity* p)
 {
   Mesh* m = a->mesh;
-  Vector point = apf::getLinearCentroid(m, p);
-  Vector param(0,0,0);
+  Vector param(0,0,0); //will be in geometric region
   Model* c = m->toModel(p);
-  Entity* v = buildVertex(a, c, point, param);
   apf::MeshElement* me = apf::createMeshElement(m, p);
-  Vector xi(0,0,0); //pyramid shape function is fake right now
+  Vector xi(0,0,-3./5.); //parametric centroid for degenerate hex pyramid
+  Vector point;
+  apf::mapLocalToGlobal(me, xi, point);
+  Entity* v = buildVertex(a, c, point, param);
   a->solutionTransfer->onVertex(me, xi, v);
   a->sizeField->interpolate(me, xi, v);
   apf::destroyMeshElement(me);

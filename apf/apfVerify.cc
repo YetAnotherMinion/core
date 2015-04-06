@@ -1,6 +1,8 @@
+#include <PCU.h>
 #include "apfMesh.h"
 #include "apf.h"
-#include <PCU.h>
+#include <gmi.h>
+#include <sstream>
 
 namespace apf {
 
@@ -55,33 +57,66 @@ static void verifyDown(Mesh* m, MeshEntity* e, int gd, int ed)
   assert(isSubset(r, getCandidateParts(m, e)));
 }
 
-static bool isExposed(Mesh* m, MeshEntity* e)
+typedef std::map<ModelEntity*, int> UpwardCounts;
+typedef std::map<ModelEntity*, bool> SideManifoldness;
+
+static void getUpwardCounts(gmi_model* gm, int meshDimension, UpwardCounts& uc)
 {
-  return (getDimension(m, e) == m->getDimension()) ||
-         (m->getModelType(m->toModel(e)) < m->getDimension()) ||
-         (m->isShared(e));
+  for (int d = 0; d < meshDimension; ++d) {
+    gmi_iter* it = gmi_begin(gm, d);
+    gmi_ent* ge;
+    while ((ge = gmi_next(gm, it))) {
+      gmi_set* up = gmi_adjacent(gm, ge, d + 1);
+      uc[(ModelEntity*)ge] = up->n;
+      gmi_free_set(up);
+    }
+    gmi_end(gm, it);
+  }
 }
 
-static int effectiveDimension(Mesh* m, MeshEntity* e)
+static void verifyUp(Mesh* m, UpwardCounts& guc,
+    MeshEntity* e)
 {
-  return isExposed(m, e) ? (m->getDimension() - 1) : m->getDimension();
-}
-
-static void verifyUp(Mesh* m, MeshEntity* e)
-{
-  int df = effectiveDimension(m, e);
-  int ed = getDimension(m, e);
-  Up up;
+  apf::Up up;
   m->getUp(e, up);
-  /* minimum (and sometimes also maximum) number of
-     upward adjacencies can be calculated by this
-     simple function for all types based on entity
-     and mesh dimension plus consideration of exposure */
-  int nu = df + 1 - ed;
-  if (ed + 1 >= m->getDimension())
-    assert(up.n == nu);
+  int upwardCount = up.n;
+  int meshDimension = m->getDimension();
+  int entityDimension = getDimension(m, e);
+  int difference = meshDimension - entityDimension;
+  if (!difference) { //element
+    assert(upwardCount == 0);
+    return;
+  }
+  ModelEntity* ge = m->toModel(e);
+  int modelDimension = m->getModelType(ge);
+  int modelUpwardCount = guc[ge];
+  bool isOnNonManifoldFace = (modelDimension == meshDimension - 1) &&
+                             (modelUpwardCount > 1);
+  bool isOnManifoldBoundary = ( ! isOnNonManifoldFace) &&
+                              (modelDimension < meshDimension);
+  bool isShared = m->isShared(e);
+  bool isExposed = isShared || isOnManifoldBoundary;
+  bool isOnEqualOrder = (modelDimension == entityDimension);
+  int expected;
+  if (isExposed)
+    expected = difference;
   else
-    assert(up.n >= nu);
+    expected = difference + 1;
+  if (( ! isShared) && isOnEqualOrder)
+    expected = std::max(expected, modelUpwardCount);
+  assert(upwardCount >= expected);
+  if (difference == 1)
+    assert(upwardCount == expected);
+  /* this is here for some spiderwebby simmetrix meshes */
+  if (upwardCount >= 200) {
+    std::stringstream ss;
+    ss << "warning: entity of type " << m->getType(e)
+      << " at " << getLinearCentroid(m, e) << " has "
+      << upwardCount << " upward adjacencies\n";
+    // use a stringstream to prevent output from different procs mixing
+    std::string s = ss.str();
+    fprintf(stderr,"%s",s.c_str());
+  }
 }
 
 static void verifyResidence(Mesh* m, MeshEntity* e)
@@ -96,7 +131,7 @@ static void verifyResidence(Mesh* m, MeshEntity* e)
     assert(p.count(it->first));
 }
 
-static void verifyEntity(Mesh* m, MeshEntity* e)
+static void verifyEntity(Mesh* m, UpwardCounts& guc, MeshEntity* e)
 {
   int ed = getDimension(m, e);
   int md = m->getDimension();
@@ -106,7 +141,7 @@ static void verifyEntity(Mesh* m, MeshEntity* e)
   if (ed)
     verifyDown(m, e, gd, ed);
   if (ed < md)
-    verifyUp(m, e);
+    verifyUp(m, guc, e);
   verifyResidence(m, e);
 }
 
@@ -194,9 +229,8 @@ static void verifyConnectivity(Mesh* m)
     m->end(it);
   }
   PCU_Comm_Send();
-  while (PCU_Comm_Listen())
-    while (!PCU_Comm_Unpacked())
-      receiveAllCopies(m);
+  while (PCU_Comm_Receive())
+    receiveAllCopies(m);
 }
 
 static void sendCoords(Mesh* m, MeshEntity* e)
@@ -241,15 +275,14 @@ static long verifyCoords(Mesh* m)
   m->end(it);
   PCU_Comm_Send();
   long n = 0;
-  while (PCU_Comm_Listen())
-    while (!PCU_Comm_Unpacked())
-      if (!receiveCoords(m))
-        ++n;
+  while (PCU_Comm_Receive())
+    if (!receiveCoords(m))
+      ++n;
   PCU_Add_Longs(&n, 1);
   return n;
 }
 
-static long verifyVolumes(Mesh* m)
+long verifyVolumes(Mesh* m, bool printVolumes)
 {
   MeshIterator* it = m->begin(m->getDimension());
   MeshEntity* e;
@@ -259,8 +292,17 @@ static long verifyVolumes(Mesh* m)
     if (!isSimplex(m->getType(e)))
       continue;
     MeshElement* me = createMeshElement(m, e);
-    if (measure(me) < 0)
+    double v = measure(me);
+    if (v < 0) {
+      if (printVolumes) {
+        std::stringstream ss;
+        ss << "warning: element volume " << v
+          << " at " << getLinearCentroid(m, e) << '\n';
+        std::string s = ss.str();
+        fprintf(stderr, "%s", s.c_str());
+      }
       ++n;
+    }
     destroyMeshElement(me);
   }
   m->end(it);
@@ -316,14 +358,45 @@ static void verifyOrder(Mesh* m)
     m->end(it);
   }
   PCU_Comm_Send();
-  while (PCU_Comm_Listen())
-    while (!PCU_Comm_Unpacked())
-      receiveOrder(m);
+  while (PCU_Comm_Receive())
+    receiveOrder(m);
+}
+
+static void verifyTags(Mesh* m)
+{
+  PCU_Comm_Begin();
+  DynamicArray<MeshTag*> tags;
+  m->getTags(tags);
+  int self = PCU_Comm_Self();
+  if (self) {
+    int n = tags.getSize();
+    PCU_COMM_PACK(self - 1, n);
+    for (int i = 0; i < n; ++i)
+      packTagInfo(m, tags[i], self - 1);
+  }
+  PCU_Comm_Send();
+  while (PCU_Comm_Receive()) {
+    int n;
+    PCU_COMM_UNPACK(n);
+    assert(tags.getSize() == (size_t)n);
+    for (int i = 0; i < n; ++i) {
+      std::string name;
+      int type;
+      int size;
+      unpackTagInfo(name, type, size);
+      assert(name == m->getTagName(tags[i]));
+      assert(type == m->getTagType(tags[i]));
+      assert(size == m->getTagSize(tags[i]));
+    }
+  }
 }
 
 void verify(Mesh* m)
 {
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
+  verifyTags(m);
+  UpwardCounts guc;
+  getUpwardCounts(m->getModel(), m->getDimension(), guc);
   /* got to 3 on purpose, so we can verify if
      m->getDimension is lying */
   for (int d = 0; d <= 3; ++d)
@@ -333,25 +406,24 @@ void verify(Mesh* m)
     size_t n = 0;
     while ((e = m->iterate(it)))
     {
-      verifyEntity(m, e);
+      verifyEntity(m, guc, e);
       ++n;
     }
     m->end(it);
     assert(n == m->count(d));
-    if (d <= m->getDimension())
-      assert(n);
-    else
+    if (d > m->getDimension())
       assert(!n);
   }
+  guc.clear();
   verifyConnectivity(m);
   verifyOrder(m);
   long n = verifyCoords(m);
   if (n && (!PCU_Comm_Self()))
-    fprintf(stderr,"apf::verify warning: %ld coordinate mismatches\n", n);
+    fprintf(stderr,"apf::verify fail: %ld coordinate mismatches\n", n);
   n = verifyVolumes(m);
   if (n && (!PCU_Comm_Self()))
     fprintf(stderr,"apf::verify warning: %ld negative simplex elements\n", n);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   if (!PCU_Comm_Self())
     printf("mesh verified in %f seconds\n", t1 - t0);
 }

@@ -3,66 +3,98 @@ find_package(ma REQUIRED PATHS ${CMAKE_BINARY_DIR})
 find_package(spr REQUIRED PATHS ${CMAKE_BINARY_DIR})
 find_package(parma REQUIRED PATHS ${CMAKE_BINARY_DIR})
 find_package(ph REQUIRED PATHS ${CMAKE_BINARY_DIR})
+find_package(apf_mpas REQUIRED PATHS ${CMAKE_BINARY_DIR})
+find_package(viz REQUIRED PATHS ${CMAKE_BINARY_DIR})
 
 include_directories(
   ${MA_INCLUDE_DIRS}
   ${MDS_INCLUDE_DIRS}
   ${SPR_INCLUDE_DIRS}
   ${PARMA_INCLUDE_DIRS}
-  ${PH_INCLUDE_DIRS})
+  ${PH_INCLUDE_DIRS}
+  ${APF_MPAS_INCLUDE_DIRS}
+  ${VIZ_INCLUDE_DIRS})
+set(ALL_LIBS
+  ${MA_LIBS}
+  ${MDS_LIBS}
+  ${SPR_LIBS}
+  ${PARMA_LIBS}
+  ${PH_LIBS}
+  ${APF_MPAS_LIBS}
+  ${VIZ_LIBS})
 
-add_executable(mdlConvert EXCLUDE_FROM_ALL mdlConvert.c)
-add_executable(mkmodel EXCLUDE_FROM_ALL mkmodel.cc)
-add_executable(mds_test EXCLUDE_FROM_ALL mds_test.cc)
-add_executable(ma_test EXCLUDE_FROM_ALL ma_test.cc)
-add_executable(ph_test EXCLUDE_FROM_ALL ph_test.cc)
-add_executable(uniform EXCLUDE_FROM_ALL uniform.cc)
-add_executable(fixshape EXCLUDE_FROM_ALL fixshape.cc)
-add_executable(tetrahedronize EXCLUDE_FROM_ALL tetrahedronize.cc)
-add_executable(render EXCLUDE_FROM_ALL render.cc)
-add_executable(verify EXCLUDE_FROM_ALL verify.cc)
-add_executable(prismCodeMatch EXCLUDE_FROM_ALL ../ma/prismCodeMatch.cc)
-add_executable(pyramidCodeMatch EXCLUDE_FROM_ALL ../ma/pyramidCodeMatch.cc)
-add_executable(spr_test EXCLUDE_FROM_ALL spr_test.cc)
-add_executable(describe EXCLUDE_FROM_ALL describe.cc)
-add_executable(balance EXCLUDE_FROM_ALL balance.cc)
-add_executable(split EXCLUDE_FROM_ALL split.cc)
-add_executable(zsplit EXCLUDE_FROM_ALL zsplit.cc)
-add_executable(ghost EXCLUDE_FROM_ALL ghost.cc)
-add_executable(bfs EXCLUDE_FROM_ALL bfs.cc)
-add_executable(hps EXCLUDE_FROM_ALL hps.cc)
-add_executable(fan EXCLUDE_FROM_ALL fan.cc)
-add_executable(dan EXCLUDE_FROM_ALL dan.cc)
+if(NOT IS_TESTING)
+  set(MYEXCLUDE EXCLUDE_FROM_ALL)
+else()
+  set(MYEXCLUDE)
+endif()
 
-set(tests
-  mdlConvert
-  mkmodel
-  mds_test
-  ma_test
-  ph_test
-  uniform
-  fixshape
-  tetrahedronize
-  render
-  verify
-  prismCodeMatch
-  pyramidCodeMatch
-  spr_test
-  describe
-  balance
-  split
-  zsplit
-  ghost
-  bfs
-  hps
-  fan
-  dan)
+macro(setup_exe exename srcname)
+  add_executable(${exename} ${MYEXCLUDE} ${srcname})
+  target_link_libraries(${exename} ${ALL_LIBS})
+  if(IS_TESTING)
+    install(TARGETS ${exename} DESTINATION bin)
+  endif()
+endmacro(setup_exe)
 
-foreach(test ${tests})
-  target_link_libraries(${test}
-    ${MA_LIBS}
-    ${MDS_LIBS}
-    ${SPR_LIBS}
-    ${PARMA_LIBS}
-    ${PH_LIBS})
-endforeach()
+setup_exe(dan dan.c)
+setup_exe(mdlConvert mdlConvert.c)
+setup_exe(mkmodel mkmodel.cc)
+setup_exe(ma_insphere ma_insphere.cc)
+setup_exe(ma_test ma_test.cc)
+setup_exe(threshold ../phasta/threshold.cc)
+setup_exe(uniform uniform.cc)
+setup_exe(refine2x refine2x.cc)
+setup_exe(fixshape fixshape.cc)
+setup_exe(fixDisconnected fixDisconnected.cc)
+setup_exe(tetrahedronize tetrahedronize.cc)
+setup_exe(fixlayer fixlayer.cc)
+setup_exe(render render.cc)
+setup_exe(verify verify.cc)
+setup_exe(prismCodeMatch ../ma/prismCodeMatch.cc)
+setup_exe(pyramidCodeMatch ../ma/pyramidCodeMatch.cc)
+setup_exe(spr_test spr_test.cc)
+setup_exe(describe describe.cc)
+setup_exe(balance balance.cc)
+setup_exe(zbalance zbalance.cc)
+setup_exe(gap gap.cc)
+setup_exe(elmBalance elmBalance.cc)
+setup_exe(vtxBalance vtxBalance.cc)
+setup_exe(edgeBalance edgeBalance.cc)
+setup_exe(vtxElmBalance vtxElmBalance.cc)
+setup_exe(vtxEdgeElmBalance vtxEdgeElmBalance.cc)
+if(ENABLE_THREADS)
+  setup_exe(split split.cc)
+  setup_exe(zsplit zsplit.cc)
+  setup_exe(chef ../phasta/chef.cc)
+else()
+  setup_exe(split split_nothread.cc)
+  setup_exe(zsplit zsplit_nothread.cc)
+  setup_exe(chef ../phasta/chef_nothread.cc)
+endif()
+setup_exe(ghost ghost.cc)
+if(ENABLE_MPAS)
+  setup_exe(mpas_read ../mpas/mpas_read.cc)
+  setup_exe(mpas_write ../mpas/mpas_write.cc)
+endif()
+setup_exe(hps hps.cc)
+setup_exe(1d 1d.cc)
+setup_exe(serialize serialize.cc)
+setup_exe(fusion fusion.cc)
+setup_exe(fusion2 fusion2.cc)
+setup_exe(fusion3 fusion3.cc)
+setup_exe(newdim newdim.cc)
+setup_exe(construct construct.cc)
+setup_exe(shapefun shapefun.cc)
+if (ENABLE_VIZ)
+  setup_exe(viz_test viz.cc)
+endif()
+setup_exe(qr_test qr_test.cc)
+setup_exe(from_neper neper.cc)
+setup_exe(from_ansys ansys.cc)
+setup_exe(eigen_test eigen_test.cc)
+setup_exe(integrate integrate.cc)
+
+if(IS_TESTING)
+  include(testing.cmake)
+endif()

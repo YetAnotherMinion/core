@@ -15,15 +15,16 @@ namespace apf {
 class ZoltanSplitter : public Splitter
 {
   public:
-    ZoltanSplitter(Mesh* m, int method, int approach, bool debug, bool sync):
-      bridge(m, true, method, approach, debug)
+    ZoltanSplitter(Mesh* m, int method, int approach,
+        bool debug, bool sync, bool local=true):
+      bridge(m, local, method, approach, debug)
     {
       isSynchronous = sync;
     }
     virtual ~ZoltanSplitter() {}
     virtual Migration* split(MeshTag* weights, double tolerance, int multiple)
     {
-      double t0 = MPI_Wtime();
+      double t0 = PCU_Time();
       Migration* plan = bridge.run(weights, tolerance, multiple);
       if (isSynchronous) {
         for (int i = 0; i < plan->count(); ++i) {
@@ -32,11 +33,11 @@ class ZoltanSplitter : public Splitter
           p += PCU_Proc_Self() * multiple;
           plan->send(e, p);
         }
-        double t1 = MPI_Wtime();
-        if (!PCU_Comm_Self())
-          printf("planned Zoltan split factor %d in %f seconds\n",
-              multiple, t1 - t0);
       }
+      double t1 = PCU_Time();
+      if (!PCU_Comm_Self())
+        fprintf(stdout, "planned Zoltan split factor %d to target"
+            " imbalance %f in %f seconds\n", multiple, tolerance, t1 - t0);
       return plan;
     }
   private:
@@ -53,10 +54,14 @@ class ZoltanBalancer : public Balancer
     virtual ~ZoltanBalancer() {}
     virtual void balance(MeshTag* weights, double tolerance)
     {
-      double t0 = MPI_Wtime();
+      double t0 = PCU_Time();
       Migration* plan = bridge.run(weights, tolerance, 1);
+      if (!PCU_Comm_Self())
+        fprintf(stdout, "planned Zoltan balance to target "
+            "imbalance %f in %f seconds\n",
+            tolerance, PCU_Time() - t0);
       bridge.mesh->migrate(plan);
-      double t1 = MPI_Wtime();
+      double t1 = PCU_Time();
       if (!PCU_Comm_Self())
         printf("Zoltan balanced to %f in %f seconds\n",
             tolerance, t1-t0);
@@ -69,6 +74,13 @@ Splitter* makeZoltanSplitter(Mesh* mesh, int method, int approach,
     bool debug, bool sync)
 {
   return new ZoltanSplitter(mesh, method, approach, debug, sync);
+}
+
+Splitter* makeZoltanGlobalSplitter(Mesh* mesh, int method, int approach,
+    bool debug) {
+  bool sync = false; //don't alter the plan
+  bool local = false;
+  return new ZoltanSplitter(mesh, method, approach, debug, sync, local);
 }
 
 Balancer* makeZoltanBalancer(Mesh* mesh, int method, int approach,

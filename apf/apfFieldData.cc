@@ -1,6 +1,6 @@
+#include <PCU.h>
 #include "apfFieldData.h"
 #include "apfShape.h"
-#include <PCU.h>
 
 namespace apf {
 
@@ -8,12 +8,19 @@ FieldData::~FieldData()
 {
 }
 
+FieldData* FieldData::clone()
+{
+  abort();
+}
+
 template <class T>
-void synchronizeFieldData(FieldDataOf<T>* data)
+void synchronizeFieldData(FieldDataOf<T>* data, Sharing* shr)
 {
   FieldBase* f = data->getField();
   Mesh* m = f->getMesh();
   FieldShape* s = f->getShape();
+  if (!shr)
+    shr = getSharing(m);
   for (int d=0; d < 4; ++d)
   {
     if ( ! s->hasNodesIn(d))
@@ -24,45 +31,44 @@ void synchronizeFieldData(FieldDataOf<T>* data)
     while ((e = m->iterate(it)))
     {
       if (( ! data->hasEntity(e))||
-          ( ! hasCopies(m,e))||
-          ( ! isOriginal(m,e)))
+          ( ! shr->isOwned(e)))
         continue;
       int n = f->countValuesOn(e);
       NewArray<T> values(n);
       data->get(e,&(values[0]));
-      Copies remotes;
-      m->getRemotes(e,remotes);
-      APF_ITERATE(Copies,remotes,it)
+      CopyArray copies;
+      shr->getCopies(e, copies);
+      for (size_t i = 0; i < copies.getSize(); ++i)
       {
-        PCU_COMM_PACK(it->first,it->second);
-        PCU_Comm_Pack(it->first,&(values[0]),n*sizeof(T));
+        PCU_COMM_PACK(copies[i].peer, copies[i].entity);
+        PCU_Comm_Pack(copies[i].peer, &(values[0]), n*sizeof(T));
       }
     }
     m->end(it);
     PCU_Comm_Send();
-    while (PCU_Comm_Listen())
-      while ( ! PCU_Comm_Unpacked())
-      {
-        MeshEntity* e;
-        PCU_COMM_UNPACK(e);
-        int n = f->countValuesOn(e);
-        NewArray<T> values(n);
-        PCU_Comm_Unpack(&(values[0]),n*sizeof(T));
-        data->set(e,&(values[0]));
-      }
+    while (PCU_Comm_Receive())
+    {
+      MeshEntity* e;
+      PCU_COMM_UNPACK(e);
+      int n = f->countValuesOn(e);
+      NewArray<T> values(n);
+      PCU_Comm_Unpack(&(values[0]),n*sizeof(T));
+      data->set(e,&(values[0]));
+    }
   }
+  delete shr;
 }
 
 /* instantiate here */
-template void synchronizeFieldData<int>(FieldDataOf<int>* data);
-template void synchronizeFieldData<double>(FieldDataOf<double>* data);
-template void synchronizeFieldData<long>(FieldDataOf<long>* data);
+template void synchronizeFieldData<int>(FieldDataOf<int>*, Sharing*);
+template void synchronizeFieldData<double>(FieldDataOf<double>*, Sharing*);
+template void synchronizeFieldData<long>(FieldDataOf<long>*, Sharing*);
 
 template <class T>
-class Copy : public FieldOp
+class CopyOp : public FieldOp
 {
   public:
-    Copy(FieldDataOf<T>* ld,
+    CopyOp(FieldDataOf<T>* ld,
          FieldDataOf<T>* rd)
     {
       from = ld;
@@ -87,7 +93,7 @@ class Copy : public FieldOp
 template <class T>
 void copyFieldData(FieldDataOf<T>* to, FieldDataOf<T>* from)
 {
-  Copy<T> copier(from,to);
+  CopyOp<T> copier(from,to);
   copier.run();
 }
 
@@ -99,11 +105,13 @@ template void copyFieldData<double>(
 template void copyFieldData<long>(
     FieldDataOf<long>* to, FieldDataOf<long>* from);
 
-void accumulateFieldData(FieldDataOf<double>* data)
+void accumulateFieldData(FieldDataOf<double>* data, Sharing* shr)
 {
   FieldBase* f = data->getField();
   Mesh* m = f->getMesh();
   FieldShape* s = f->getShape();
+  if (!shr)
+    shr = getSharing(m);
   for (int d=0; d < 4; ++d)
   {
     if ( ! s->hasNodesIn(d))
@@ -113,26 +121,28 @@ void accumulateFieldData(FieldDataOf<double>* data)
     PCU_Comm_Begin();
     while ((e = m->iterate(it)))
     {
-      if (( ! data->hasEntity(e))||
-          ( ! hasCopies(m,e))||
-          (isOriginal(m,e)))
-        continue;
+      if (( ! data->hasEntity(e)) ||
+          (shr->isOwned(e)))
+        continue; /* non-owners send to owners */
+      CopyArray copies;
+      shr->getCopies(e, copies);
       int n = f->countValuesOn(e);
       NewArray<double> values(n);
       data->get(e,&(values[0]));
-      Copies remotes;
-      m->getRemotes(e,remotes);
-      APF_ITERATE(Copies,remotes,it)
+      /* actually, non-owners send to all others,
+         since apf::Sharing doesn't identify the owner */
+      for (size_t i = 0; i < copies.getSize(); ++i)
       {
-        PCU_COMM_PACK(it->first,it->second);
-        PCU_Comm_Pack(it->first,&(values[0]),n*sizeof(double));
+        PCU_COMM_PACK(copies[i].peer, copies[i].entity);
+        PCU_Comm_Pack(copies[i].peer, &(values[0]), n*sizeof(double));
       }
     }
     m->end(it);
     PCU_Comm_Send();
     while (PCU_Comm_Listen())
       while ( ! PCU_Comm_Unpacked())
-      {
+      { /* receive and add. we only care about correctness
+           on the owners */
         MeshEntity* e;
         PCU_COMM_UNPACK(e);
         int n = f->countValuesOn(e);
@@ -144,7 +154,8 @@ void accumulateFieldData(FieldDataOf<double>* data)
           values[i] += inValues[i];
         data->set(e,&(values[0]));
       }
-  }
+  } /* broadcast back out to non-owners */
+  synchronizeFieldData(data, shr);
 }
 
 }

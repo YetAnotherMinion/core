@@ -7,6 +7,7 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "ma.h"
 #include "maAdapt.h"
 #include "maCoarsen.h"
@@ -15,14 +16,13 @@
 #include "maShape.h"
 #include "maBalance.h"
 #include "maLayer.h"
-#include <PCU.h>
 
 namespace ma {
 
 void adapt(Input* in)
 {
   print("version 2.0 !");
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   validateInput(in);
   Adapt* a = new Adapt(in);
   preBalance(a);
@@ -30,18 +30,21 @@ void adapt(Input* in)
   {
     print("iteration %d",i);
     coarsen(a);
+    coarsenLayer(a);
     midBalance(a);
     refine(a);
   }
   allowSplitCollapseOutsideLayer(a);
   snap(a);
   fixElementShapes(a);
+  cleanupLayer(a);
   tetrahedronize(a);
+  printQuality(a);
   postBalance(a);
   Mesh* m = a->mesh;
   delete a;
   delete in;
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   print("mesh adapted in %f seconds",t1-t0);
   apf::printStats(m);
 }

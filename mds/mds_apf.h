@@ -36,7 +36,8 @@ struct mds_apf {
   struct mds_net matches;
 };
 
-struct mds_apf* mds_apf_create(struct gmi_model* model, int d, int cap[MDS_TYPES]);
+struct mds_apf* mds_apf_create(struct gmi_model* model, int d,
+    mds_id cap[MDS_TYPES]);
 void mds_apf_destroy(struct mds_apf* m);
 double* mds_apf_point(struct mds_apf* m, mds_id e);
 double* mds_apf_param(struct mds_apf* m, mds_id e);
@@ -48,7 +49,6 @@ void mds_apf_destroy_entity(struct mds_apf* m, mds_id e);
 void* mds_get_part(struct mds_apf* m, mds_id e);
 void mds_set_part(struct mds_apf* m, mds_id e, void* p);
 
-struct mds_tag* mds_number(struct mds_apf* m);
 struct mds_apf* mds_reorder(struct mds_apf* m);
 
 struct gmi_ent* mds_find_model(struct mds_apf* m, int dim, int id);
@@ -61,12 +61,14 @@ struct mds_apf* mds_write_smb(struct mds_apf* m, const char* pathname);
 void mds_verify(struct mds_apf* m);
 void mds_verify_residence(struct mds_apf* m, mds_id e);
 
-void mds_apf_scale(struct mds_apf* m, int factor);
-
 int mds_align_matches(struct mds_apf* m);
+int mds_align_remotes(struct mds_apf* m);
+
+void mds_derive_model(struct mds_apf* m);
 
 extern int const mds_apf_double;
 extern int const mds_apf_int;
+extern int const mds_apf_long;
 
 #ifdef __cplusplus
 }

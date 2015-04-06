@@ -29,6 +29,7 @@ void setDefaultValues(Input* in)
   in->shouldTransferParametric = in->mesh->canSnap();
   in->shouldHandleMatching = in->mesh->hasMatching();
   in->shouldFixShape = true;
+  in->shouldPrintQuality = true;
   if (in->mesh->getDimension()==3)
   {
     in->goodQuality = 0.027;
@@ -46,16 +47,14 @@ void setDefaultValues(Input* in)
   in->maximumImbalance = 1.10;
   in->shouldRunPreZoltan = false;
   in->shouldRunPreParma = false;
-  in->shouldRunPreDiffusion = false;
   in->shouldRunMidZoltan = false;
   in->shouldRunMidParma = false;
-  in->shouldRunMidDiffusion = false;
   in->shouldRunPostZoltan = false;
   in->shouldRunPostParma = false;
-  in->shouldRunPostDiffusion = false;
-  in->diffuseIterations = 30;
   in->shouldTurnLayerToTets = false;
+  in->shouldCleanupLayer = false;
   in->shouldRefineLayer = false;
+  in->shouldCoarsenLayer = false;
   in->isUniform = false;
 }
 
@@ -101,10 +100,6 @@ void validateInput(Input* in)
     rejectInput("negative minimum element quality");
   if (in->maximumImbalance < 1.0)
     rejectInput("maximum imbalance less than 1.0");
-  if (in->shouldRunPreZoltan && in->shouldRunPreParma)
-    rejectInput("should not run both parma and zoltan before adapting");
-  if (in->diffuseIterations < 0)
-    rejectInput("negative parma diffuse iterations");
   if (in->maximumEdgeRatio < 1.0)
     rejectInput("maximum tet edge ratio less than one");
 }
@@ -161,6 +156,16 @@ Input* configure(
 
 Input* configure(
     Mesh* m,
+    apf::Field* f,
+    SolutionTransfer* s)
+{
+  Input* in = configure(m,s);
+  in->sizeField = makeSizeField(m, f);
+  return in;
+}
+
+Input* configure(
+    Mesh* m,
     apf::Field* sizes,
     apf::Field* frames,
     SolutionTransfer* s)
@@ -169,23 +174,6 @@ Input* configure(
   in->sizeField = makeSizeField(m, sizes, frames);
   return in;
 }
-
-class FieldReader : public IsotropicFunction
-{
-  public:
-    FieldReader(apf::Field* f)
-    {
-      field = f;
-      assert(apf::getValueType(field)==apf::SCALAR);
-      assert(apf::getShape(field)==apf::getLagrange(1));
-    }
-    virtual ~FieldReader() {}
-    virtual double getValue(Entity* vert)
-    {
-      return apf::getScalar(field,vert,0);
-    }
-    apf::Field* field;
-};
 
 Input* configureUniformRefine(Mesh* m, int n, SolutionTransfer* s)
 {

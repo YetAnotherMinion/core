@@ -29,12 +29,12 @@ void pcu_tmpi_free(void)
   pcu_free_mboxes(&mboxes[1]);
 }
 
-int pcu_tmpi_size()
+int pcu_tmpi_size(void)
 {
   return pcu_pmpi_size() * pcu_thread_size();
 }
 
-int pcu_tmpi_rank()
+int pcu_tmpi_rank(void)
 {
   return pcu_thread_size() * pcu_pmpi_rank() + pcu_thread_rank();
 }

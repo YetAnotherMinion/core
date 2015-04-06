@@ -7,6 +7,7 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "maShape.h"
 #include "maSize.h"
 #include "maAdapt.h"
@@ -15,7 +16,6 @@
 #include "maDoubleSplitCollapse.h"
 #include "maShortEdgeRemover.h"
 #include "maShapeHandler.h"
-#include <PCU.h>
 
 namespace ma {
 
@@ -87,6 +87,27 @@ int markBadQuality(Adapt* a)
 {
   IsBadQuality p(a);
   return markEntities(a, a->mesh->getDimension(), p, BAD_QUALITY, OK_QUALITY);
+}
+
+double getMinQuality(Adapt* a)
+{
+  assert(a);
+  Mesh* m;
+  m = a->mesh;
+  assert(m);
+  Iterator* it = m->begin(m->getDimension());
+  Entity* e;
+  double minqual = 1;
+  while ((e = m->iterate(it))) {
+    if (!apf::isSimplex(m->getType(e)))
+      continue;
+    double qual = a->shape->getQuality(e);
+    if (qual < minqual)
+      minqual = qual;
+  }
+  m->end(it);
+  PCU_Min_Doubles(&minqual, 1);
+  return minqual;
 }
 
 class ShortEdgeFixer : public Operator
@@ -333,6 +354,7 @@ class LargeAngleTriFixer : public Operator
     }
     virtual ~LargeAngleTriFixer()
     {
+      delete edgeSwap;
     }
     virtual int getTargetDimension() {return 2;}
     virtual bool shouldApply(Entity* e)
@@ -398,7 +420,7 @@ void fixElementShapes(Adapt* a)
 {
   if ( ! a->input->shouldFixShape)
     return;
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   int count = markBadQuality(a);
   int originalCount = count;
   int prev_count;
@@ -411,9 +433,17 @@ void fixElementShapes(Adapt* a)
     fixShortEdgeElements(a);
     count = markBadQuality(a);
   } while(count < prev_count);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   print("bad shapes down from %d to %d in %f seconds",
         originalCount,count,t1-t0);
+}
+
+void printQuality(Adapt* a)
+{
+  if ( ! a->input->shouldPrintQuality)
+    return;
+  double minqual = getMinQuality(a);
+  print("worst element quality is %e", minqual);
 }
 
 }

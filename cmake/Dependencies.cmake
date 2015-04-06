@@ -1,13 +1,14 @@
 SET(SUBPACKAGES_DIRS_CLASSIFICATIONS_OPTREQS
     pcu                 pcu             SS  REQUIRED
-    apf                 apf             SS  REQUIRED
     gmi                 gmi             SS  REQUIRED
+    apf                 apf             SS  REQUIRED
     mds                 mds             SS  REQUIRED
     parma               parma           SS  REQUIRED
     apf_zoltan          zoltan          SS  REQUIRED
     ma                  ma              SS  REQUIRED
     spr                 spr             SS  REQUIRED
     apf_stk             stk             SS  REQUIRED
+    dwr                 dwr             SS  REQUIRED
 )
 
 SET(LIB_REQUIRED_DEP_PACKAGES)

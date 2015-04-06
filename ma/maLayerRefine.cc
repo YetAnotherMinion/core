@@ -1,7 +1,7 @@
+#include <PCU.h>
 #include "maCrawler.h"
 #include "maRefine.h"
 #include "maLayer.h"
-#include <PCU.h>
 
 namespace ma {
 
@@ -18,6 +18,9 @@ static void preventQuadEdgeSplits(Adapt* a)
         setFlag(a, qe[i], DONT_SPLIT);
     }
   m->end(it);
+/* other parts may have copies of these edges
+   but no quads next to them */
+  syncFlag(a, 1, DONT_SPLIT);
 }
 
 static void allowBaseToSplit(Adapt* a)
@@ -71,7 +74,7 @@ struct SplitTagger : public Crawler
     bool has = getFlag(a, e, SPLIT);
     PCU_COMM_PACK(to, has);
   }
-  bool recv(Entity* e, int from)
+  bool recv(Entity* e, int)
   {
     bool has;
     PCU_COMM_UNPACK(has);
@@ -207,7 +210,7 @@ struct Disambiguator : public Crawler
     int diag = getDiagonalFromFlag(a, t);
     PCU_COMM_PACK(to, diag);
   }
-  bool recv(Entity* t, int from)
+  bool recv(Entity* t, int)
   {
     int diag;
     PCU_COMM_UNPACK(diag);

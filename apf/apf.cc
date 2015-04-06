@@ -45,7 +45,7 @@ void destroyMeshElement(MeshElement* e)
   delete e;
 }
 
-static Field* makeField(
+Field* makeField(
     Mesh* m,
     const char* name,
     int valueType,
@@ -63,6 +63,8 @@ static Field* makeField(
     f = new MatrixField();
   else if (valueType == PACKED)
     f = new PackedField(components);
+  else
+    fail("invalid valueType in field construction\n");
   f->init(name,m,shape,data);
   m->addField(f);
   return f;
@@ -99,6 +101,12 @@ Field* createPackedField(Mesh* m, const char* name, int components)
       new TagDataOf<double>());
 }
 
+Field* cloneField(Field* f, Mesh* onto)
+{
+  return makeField(onto, f->getName(), f->getValueType(), f->countComponents(),
+      f->getShape(), f->getData()->clone());
+}
+
 Mesh* getMesh(Field* f)
 {
   return f->getMesh();
@@ -121,6 +129,8 @@ int getValueType(Field* f)
 
 void destroyField(Field* f)
 {
+  if (!f)
+    return;
   getMesh(f)->removeField(f);
   delete f;
 }
@@ -344,14 +354,14 @@ int getDimension(MeshElement* me)
   return me->getDimension();
 }
 
-void synchronize(Field* f)
+void synchronize(Field* f, Sharing* shr)
 {
-  f->getData()->synchronize();
+  f->getData()->synchronize(shr);
 }
 
-void accumulate(Field* f)
+void accumulate(Field* f, Sharing* shr)
 {
-  synchronizeFieldData(f->getData());
+  accumulateFieldData(f->getData(), shr);
 }
 
 void fail(const char* why)
@@ -384,6 +394,21 @@ Field* createUserField(Mesh* m, const char* name, int valueType, FieldShape* s,
     Function* f)
 {
   return makeField(m, name, valueType, 0, s, new UserData(f));
+}
+
+void copyData(Field* to, Field* from)
+{
+  copyFieldData(to->getData(), from->getData());
+}
+
+void projectField(Field* to, Field* from)
+{
+  to->project(from);
+}
+
+void axpy(double a, Field* x, Field* y)
+{
+  y->axpy(a, x);
 }
 
 }//namespace apf

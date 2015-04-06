@@ -5,16 +5,59 @@
  * BSD license as described in the LICENSE file in the top-level directory.
  */
 
+#include <PCU.h>
 #include "apfMesh.h"
 #include "apfNumbering.h"
 #include "apfNumberingClass.h"
 #include "apfShape.h"
 #include "apfFieldData.h"
-#include <PCU.h>
 #include <sstream>
 #include <fstream>
 
 namespace apf {
+
+class HasAll : public FieldOp
+{
+  public:
+      virtual bool inEntity(MeshEntity* e)
+      {
+        if (!f->getData()->hasEntity(e))
+          ok = false;
+        return false;
+      }
+      bool run(FieldBase* f_)
+      {
+        f = f_;
+        ok = true;
+        this->apply(f);
+        return ok;
+      }
+  private:
+    bool ok;
+    FieldBase* f;
+};
+
+static bool isPrintable(FieldBase* f)
+{
+  HasAll op;
+  return op.run(f);
+}
+
+static bool isNodal(FieldBase* f)
+{
+  return f->getShape() == f->getMesh()->getShape();
+}
+
+static bool isIP(FieldBase* f)
+{
+  FieldShape* s = f->getShape();
+  Mesh* m = f->getMesh();
+  int d = m->getDimension();
+  for (int i=0; i < d; ++i)
+    if (s->hasNodesIn(i))
+      return false;
+  return s->hasNodesIn(d);
+}
 
 static void describeArray(
     std::ostream& file,
@@ -23,7 +66,7 @@ static void describeArray(
     int size)
 {
   file << "type=\"";
-  const char* typeNames[2] = {"Float64","Int32"};
+  const char* typeNames[3] = {"Float64","Int32","Int64"};
   file << typeNames[type];
   file << "\" Name=\"" << name;
   file << "\" NumberOfComponents=\"" << size;
@@ -66,27 +109,22 @@ static void writePPointData(std::ostream& file, Mesh* m)
   for (int i=0; i < m->countFields(); ++i)
   {
     Field* f = m->getField(i);
-    if (f->getShape()== m->getShape())
+    if (isNodal(f) && isPrintable(f))
       writePDataArray(file,f);
   }
   for (int i=0; i < m->countNumberings(); ++i)
   {
     Numbering* n = m->getNumbering(i);
-    if (n->getShape() == m->getShape())
+    if (isNodal(n) && isPrintable(n))
+      writePDataArray(file,n);
+  }
+  for (int i=0; i < m->countGlobalNumberings(); ++i)
+  {
+    GlobalNumbering* n = m->getGlobalNumbering(i);
+    if (isNodal(n) && isPrintable(n))
       writePDataArray(file,n);
   }
   file << "</PPointData>\n";
-}
-
-static bool isIPField(FieldBase* f)
-{
-  FieldShape* s = f->getShape();
-  Mesh* m = f->getMesh();
-  int d = m->getDimension();
-  for (int i=0; i < d; ++i)
-    if (s->hasNodesIn(i))
-      return false;
-  return s->hasNodesIn(d);
 }
 
 static int countIPs(FieldBase* f)
@@ -130,13 +168,19 @@ static void writePCellData(std::ostream& file, Mesh* m)
   for (int i=0; i < m->countFields(); ++i)
   {
     Field* f = m->getField(i);
-    if (isIPField(f))
+    if (isIP(f) && isPrintable(f))
       writeIP_PCellData(file,f);
   }
   for (int i=0; i < m->countNumberings(); ++i)
   {
     Numbering* n = m->getNumbering(i);
-    if (isIPField(n))
+    if (isIP(n) && isPrintable(n))
+      writeIP_PCellData(file,n);
+  }
+  for (int i=0; i < m->countGlobalNumberings(); ++i)
+  {
+    GlobalNumbering* n = m->getGlobalNumbering(i);
+    if (isIP(n) && isPrintable(n))
       writeIP_PCellData(file,n);
   }
   writePCellParts(file);
@@ -172,6 +216,7 @@ static void writePvtuFile(const char* prefix, Mesh* m)
   std::string fileName = prefix;
   fileName += ".pvtu";
   std::ofstream file(fileName.c_str());
+  assert(file.is_open());
   file << "<VTKFile type=\"PUnstructuredGrid\">\n";
   file << "<PUnstructuredGrid GhostLevel=\"0\">\n";
   writePPoints(file,m->getCoordinateField());
@@ -294,14 +339,20 @@ static void writePointData(std::ostream& file, Mesh* m,
   for (int i=0; i < m->countFields(); ++i)
   {
     Field* f = m->getField(i);
-    if (getShape(f)== m->getShape())
+    if (isNodal(f) && isPrintable(f))
       writeNodalField<double>(file,f,nodes);
   }
   for (int i=0; i < m->countNumberings(); ++i)
   {
     Numbering* n = m->getNumbering(i);
-    if (getShape(n)== m->getShape())
+    if (isNodal(n) && isPrintable(n))
       writeNodalField<int>(file,n,nodes);
+  }
+  for (int i=0; i < m->countGlobalNumberings(); ++i)
+  {
+    GlobalNumbering* n = m->getGlobalNumbering(i);
+    if (isNodal(n) && isPrintable(n))
+      writeNodalField<long>(file,n,nodes);
   }
   file << "</PointData>\n";
 }
@@ -366,15 +417,22 @@ static void writeCellData(std::ostream& file, Mesh* m)
   for (int i=0; i < m->countFields(); ++i)
   {
     Field* f = m->getField(i);
-    if (isIPField(f))
+    if (isIP(f) && isPrintable(f))
       wd.run(file,f);
   }
   WriteIPField<int> wi;
   for (int i=0; i < m->countNumberings(); ++i)
   {
     Numbering* n = m->getNumbering(i);
-    if (isIPField(n))
+    if (isIP(n) && isPrintable(n))
       wi.run(file,n);
+  }
+  WriteIPField<long> wl;
+  for (int i=0; i < m->countGlobalNumberings(); ++i)
+  {
+    GlobalNumbering* n = m->getGlobalNumbering(i);
+    if (isIP(n) && isPrintable(n))
+      wl.run(file,n);
   }
   writeCellParts(file, m);
   file << "</CellData>\n";
@@ -384,6 +442,7 @@ static void writeVtuFile(const char* prefix, Numbering* n)
 {
   std::string fileName = getPieceFileName(prefix,PCU_Comm_Self());
   std::ofstream file(fileName.c_str());
+  assert(file.is_open());
   Mesh* m = n->getMesh();
   DynamicArray<Node> nodes;
   getNodes(n,nodes);
@@ -403,12 +462,13 @@ static void writeVtuFile(const char* prefix, Numbering* n)
 
 void writeVtkFiles(const char* prefix, Mesh* m)
 {
-  double t0 = MPI_Wtime();
-  writePvtuFile(prefix, m);
+  double t0 = PCU_Time();
+  if (!PCU_Comm_Self())
+    writePvtuFile(prefix, m);
   Numbering* n = numberOverlapNodes(m,"apf_vtk_number");
   m->removeNumbering(n);
   writeVtuFile(prefix, n);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   if (!PCU_Comm_Self())
     printf("vtk files %s written in %f seconds\n",
         prefix, t1 - t0);

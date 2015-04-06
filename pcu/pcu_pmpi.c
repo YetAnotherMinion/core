@@ -104,3 +104,8 @@ void pcu_pmpi_switch(MPI_Comm new_comm)
   pcu_pmpi_init(new_comm);
 }
 
+MPI_Comm pcu_pmpi_comm(void)
+{
+  return original_comm;
+}
+

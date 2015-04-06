@@ -1,7 +1,9 @@
+#include <PCU.h>
 #include "maLayer.h"
 #include "maAdapt.h"
 #include "maRefine.h"
-#include <PCU.h>
+#include "maShape.h"
+#include <sstream>
 
 namespace ma {
 
@@ -74,12 +76,12 @@ void unfreezeLayer(Adapt* a)
 
 void resetLayer(Adapt* a)
 {
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   long n = markLayerElements(a);
   if (!n)
     return;
   freezeLayer(a);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   print("marked %ld layer elements in %f seconds", n, t1 - t0);
 }
 
@@ -142,6 +144,26 @@ void collectForLayerRefine(Refine* r)
    at quad centers, that mapping is needed
    to refine layer elements */
   r->shouldCollect[2] = true;
+}
+
+void checkLayerShape(Mesh* m)
+{
+  double t0 = PCU_Time();
+  Iterator* it = m->begin(m->getDimension());
+  Entity* e;
+  while ((e = m->iterate(it)))
+    if ( ! apf::isSimplex(m->getType(e)))
+      if ( ! isLayerElementOk(m, e)) {
+        std::stringstream ss;
+        ss << "warning: layer element at "
+          << apf::getLinearCentroid(m, e)
+          << " is unsafe to tetrahedronize\n";
+        std::string s = ss.str();
+        fprintf(stderr,"%s",s.c_str());
+      }
+  m->end(it);
+  double t1 = PCU_Time();
+  print("checked layer quality in %f seconds",t1 - t0);
 }
 
 }

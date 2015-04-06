@@ -1,26 +1,16 @@
+#include <PCU.h>
 #include "phOutput.h"
 #include "phIO.h"
 #include <sstream>
-#include <PCU.h>
 
 namespace ph {
 
-static std::string buildGeomBCFileName(Input& in)
+static std::string buildGeomBCFileName()
 {
   std::stringstream ss;
   int rank = PCU_Comm_Self() + 1;
   ss << "geombc.dat." << rank;
   return ss.str();
-}
-
-/* note: doing this as an "int" will almost certainly
-   overflow for billion-element meshes.
-   but, thats the format used in previous geombc. */
-int getTotalNodes(apf::Mesh* m)
-{
-  int n = apf::countOwned(m, 0);
-  PCU_Add_Ints(&n, 1);
-  return n;
 }
 
 enum {
@@ -74,14 +64,6 @@ void getNaturalBCValues(Output& o, int block, apf::DynamicArray<double>& values)
   assert(i == values.getSize());
 }
 
-void getEssentialBCMap(Output& o, apf::DynamicArray<int>& map)
-{
-  int nnode = o.mesh->count(0);
-  map.setSize(nnode);
-  for (int node = 0; node < nnode; ++node)
-    map[node] = o.arrays.nbc[node] + 1;
-}
-
 void getEssentialBCValues(Output& o, apf::DynamicArray<double>& values)
 {
   int nnode = o.nEssentialBCNodes;
@@ -119,7 +101,7 @@ void writeBlocks(FILE* f, Output& o)
   for (int i = 0; i < o.blocks.boundary.getSize(); ++i) {
     BlockKey& k = o.blocks.boundary.keys[i];
     std::string phrase = getBlockKeyPhrase(k, "connectivity boundary ");
-    params[0] = o.blocks.interior.nElements[i];
+    params[0] = o.blocks.boundary.nElements[i];
     fillBlockKeyParams(params, k);
     params[7] = countNaturalBCs(*o.in);
     getBoundaryConnectivity(o, i, c);
@@ -150,12 +132,30 @@ static void writeDoubles(FILE* f, const char* name, double* d, int n)
   ph_write_doubles(f, name, d, n, 1, &n);
 }
 
+static void writeElementGraph(Output& o, FILE* f)
+{
+  if (o.in->formElementGraph) {
+    apf::Mesh* m = o.mesh;
+    int dim = m->getDimension();
+    int type = getFirstType(m, dim);
+    int nsides = apf::Mesh::adjacentCount[type][dim - 1];
+    size_t nelem = m->count(dim);
+    writeInt(f, "size of ilworkf array", o.nlworkf);
+    writeInts(f, "ilworkf", o.arrays.ilworkf, o.nlworkf);
+    writeInts(f, "ienneigh", o.arrays.ienneigh, nelem * nsides);
+  }
+}
+
 void writeGeomBC(Output& o, std::string path)
 {
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   apf::Mesh* m = o.mesh;
-  path += buildGeomBCFileName(*o.in);
+  path += buildGeomBCFileName();
   FILE* f = fopen(path.c_str(), "w");
+  if (!f) {
+    fprintf(stderr,"failed to open \"%s\"!\n", path.c_str());
+    abort();
+  }
   ph_write_preamble(f);
   int params[MAX_PARAMS];
 /* all of these strings are looked for by the other programs
@@ -166,8 +166,8 @@ void writeGeomBC(Output& o, std::string path)
   writeInt(f, "number of edges in the mesh", o.nGlobalEntities[1]);
   writeInt(f, "number of faces in the mesh", o.nGlobalEntities[2]);
   writeInt(f, "number of modes", o.nOverlapNodes);
-  writeInt(f, "number of shapefunctions soved on processor", o.nOwnedNodes);
-  writeInt(f, "number of global modes", o.nGlobalNodes);
+  writeInt(f, "number of shapefunctions soved on processor", 0);
+  writeInt(f, "number of global modes", 0);
   writeInt(f, "number of interior elements", m->count(m->getDimension()));
   writeInt(f, "number of boundary elements", o.nBoundaryElements);
   writeInt(f, "maximum number of element nodes", o.nMaxElementNodes);
@@ -181,21 +181,20 @@ void writeGeomBC(Output& o, std::string path)
   writeInt(f, "number of processors", PCU_Comm_Peers());
   writeInt(f, "size of ilwork array", o.nlwork);
   if (o.nlwork)
-    writeInts(f, "ilwork", o.arrays.ilwork, o.nlwork);
+    writeInts(f, "ilwork ", o.arrays.ilwork, o.nlwork);
   params[0] = m->count(0);
   writeInts(f, " mode number map from partition to global",
       o.arrays.globalNodeNumbers, m->count(0));
   writeBlocks(f, o);
-  apf::DynamicArray<int> nbc;
-  getEssentialBCMap(o, nbc);
-  writeInts(f, "bc mapping array", &nbc[0], m->count(0));
+  writeInts(f, "bc mapping array", o.arrays.nbc, m->count(0));
   writeInts(f, "bc codes array", o.arrays.ibc, o.nEssentialBCNodes);
   apf::DynamicArray<double> bc;
   getEssentialBCValues(o, bc);
   writeDoubles(f, "boundary condition array", &bc[0], bc.getSize());
   writeInts(f, "periodic masters array", o.arrays.iper, m->count(0));
+  writeElementGraph(o, f);
   fclose(f);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   if (!PCU_Comm_Self())
     printf("geombc file written in %f seconds\n", t1 - t0);
 }

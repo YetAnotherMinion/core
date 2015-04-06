@@ -1,33 +1,51 @@
+#include <PCU.h>
 #include "phRestart.h"
 #include <apf.h>
 #include "phIO.h"
-#include <PCU.h>
+#include "ph.h"
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 
 namespace ph {
 
+/* in_size is the number of dofs for the data array
+   and out_size is the number of dofs in the field.
+   they are unequal when we read a restart file
+   and want to add more dofs for the next restart files */
+
 void attachField(
     apf::Mesh* m,
     const char* fieldname,
     double* data,
-    int size)
+    int in_size,
+    int out_size)
 {
-  apf::Field* f = apf::createPackedField(m, fieldname, size);
+  assert(in_size <= out_size);
+  apf::Field* f = apf::createPackedField(m, fieldname, out_size);
   size_t n = m->count(0);
-  apf::NewArray<double> c(size);
+  apf::NewArray<double> c(out_size);
   apf::MeshEntity* e;
   size_t i = 0;
   apf::MeshIterator* it = m->begin(0);
   while ((e = m->iterate(it))) {
-    for (int j = 0; j < size; ++j)
+    for (int j = 0; j < in_size; ++j)
       c[j] = data[j * n + i];
     apf::setComponents(f, e, 0, &c[0]);
     ++i;
   }
   m->end(it);
   assert(i == n);
+}
+
+/* convenience wrapper, in most cases in_size=out_size */
+void attachField(
+    apf::Mesh* m,
+    const char* fieldname,
+    double* data,
+    int size)
+{
+  attachField(m, fieldname, data, size, size);
 }
 
 void detachField(
@@ -51,6 +69,7 @@ void detachField(
   }
   m->end(it);
   assert(i == n);
+  apf::destroyField(f);
 }
 
 void detachField(
@@ -67,7 +86,8 @@ void readAndAttachField(
     Input& in,
     apf::Mesh* m,
     const char* filename,
-    const char* fieldname)
+    const char* fieldname,
+    int out_size = -1)
 {
   double* data;
   int nodes, vars, step;
@@ -75,7 +95,9 @@ void readAndAttachField(
       &nodes, &vars, &step);
   assert(nodes == static_cast<int>(m->count(0)));
   assert(step == in.timeStepNumber);
-  attachField(m, fieldname, data, vars);
+  if (out_size == -1)
+    out_size = vars;
+  attachField(m, fieldname, data, vars, out_size);
   free(data);
 }
 
@@ -121,47 +143,64 @@ static void readStepNum(Input& in)
   assert(in.timeStepNumber == step);
 }
 
-static std::string buildRestartFileName(Input& in)
+static std::string buildRestartFileName(std::string prefix, int step)
 {
   std::stringstream ss;
   int rank = PCU_Comm_Self() + 1;
-  ss << in.restartFileName << '.' << in.timeStepNumber << '.' << rank;
+  ss << prefix << '.' << step << '.' << rank;
   return ss.str();
 }
 
 void readAndAttachSolution(Input& in, apf::Mesh* m)
 {
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   readStepNum(in);
-  std::string filename = buildRestartFileName(in);
-  readAndAttachField(in, m, filename.c_str(), "solution");
+  setupInputSubdir(in.restartFileName);
+  std::string filename = buildRestartFileName(in.restartFileName, in.timeStepNumber);
+  readAndAttachField(in, m, filename.c_str(), "solution", in.ensa_dof);
   if (in.displacementMigration)
     readAndAttachField(in, m, filename.c_str(), "displacement");
   if (in.dwalMigration)
     readAndAttachField(in, m, filename.c_str(), "dwal");
-  if (in.buildMapping) {
-    double* mapping = buildMappingPartId(m);
-    attachField(m, "mapping_partid", mapping, 1);
-    free(mapping);
-    mapping = buildMappingVtxId(m);
-    attachField(m, "mapping_vtxid", mapping, 1);
-    free(mapping);
-  }
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   if (!PCU_Comm_Self())
     printf("solution read and attached in %f seconds\n", t1 - t0);
 }
 
+void buildMapping(apf::Mesh* m)
+{
+  double* mapping = buildMappingPartId(m);
+  attachField(m, "mapping_partid", mapping, 1);
+  free(mapping);
+  mapping = buildMappingVtxId(m);
+  attachField(m, "mapping_vtxid", mapping, 1);
+  free(mapping);
+}
+
+void attachZeroSolution(Input& in, apf::Mesh* m)
+{
+  int vars = in.ensa_dof;
+  int nodes = m->count(0);
+  double* data = new double[nodes * vars]();
+  attachField(m, "solution", data, vars);
+  delete [] data;
+}
+
 void detachAndWriteSolution(Input& in, apf::Mesh* m, std::string path)
 {
-  double t0 = MPI_Wtime();
-  path += buildRestartFileName(in);
+  double t0 = PCU_Time();
+  path += buildRestartFileName("restart", in.timeStepNumber);
   FILE* f = fopen(path.c_str(), "w");
+  if (!f) {
+    fprintf(stderr,"failed to open \"%s\"!\n", path.c_str());
+    abort();
+  }
   ph_write_preamble(f);
   int nodes = m->count(0);
   ph_write_header(f, "number of modes", 0, 1, &nodes);
   ph_write_header(f, "number of variables", 0, 1, &in.ensa_dof);
-  detachAndWriteField(in, m, f, "solution");
+  if (m->findField("solution"))
+    detachAndWriteField(in, m, f, "solution");
   if (in.displacementMigration)
     detachAndWriteField(in, m, f, "displacement");
   if (in.dwalMigration)
@@ -171,7 +210,7 @@ void detachAndWriteSolution(Input& in, apf::Mesh* m, std::string path)
     detachAndWriteField(in, m, f, "mapping_vtxid");
   }
   fclose(f);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   if (!PCU_Comm_Self())
     printf("solution written in %f seconds\n", t1 - t0);
 }

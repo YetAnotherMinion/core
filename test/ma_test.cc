@@ -18,7 +18,7 @@ class Linear : public ma::IsotropicFunction
     {
       ma::Vector p = ma::getPosition(mesh,v);
       double x = (p[0] - lower[0])/(upper[0] - lower[0]);
-      return average*(3*x+1)/2;
+      return average*(4*x+2)/3;
     }
   private:
     ma::Mesh* mesh;
@@ -40,8 +40,9 @@ int main(int argc, char** argv)
   Linear sf(m);
   ma::Input* in = ma::configure(m, &sf);
   in->shouldRunPreZoltan = true;
-  in->shouldRunMidDiffusion = true;
-  in->shouldRunPostDiffusion = true;
+  in->shouldRunMidParma = true;
+  in->shouldRunPostParma = true;
+  in->shouldRefineLayer = true;
   ma::adapt(in);
   m->verify();
   apf::writeVtkFiles("after",m);

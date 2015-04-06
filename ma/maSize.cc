@@ -7,10 +7,10 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "maSize.h"
 #include <apfShape.h>
 #include <cstdlib>
-#include <PCU.h>
 
 namespace ma {
 
@@ -47,9 +47,9 @@ double IdentitySizeField::placeSplit(Entity*)
 }
 
 void IdentitySizeField::interpolate(
-    apf::MeshElement* parent,
-    Vector const& xi,
-    Entity* newVert)
+    apf::MeshElement*,
+    Vector const&,
+    Entity*)
 {
 }
 
@@ -82,12 +82,30 @@ static void interpolateR(
     Matrix& R)
 {
   apf::getMatrix(rElement,xi,R);
+  /* by the way, the principal direction vectors
+     are in the columns, so lets do our cleanup
+     work on the transpose */
   Matrix RT = transpose(R);
-  /* we store R and h separately because the interpolation
-     is not simple: we re-normalize the rotation matrix R
-     after interpolating its components. */
-  for (int i=0; i < 3; ++i)
-    RT[i] = RT[i].normalize();
+  /* we have to make sure this remains a rotation matrix.
+     lets assume that component-wise interpolation gave
+     a somewhat decent answer.
+     (if not, the truly proper solution is to interpolate
+      quaternion components, see also Lie groups)
+     R[0] should be the interpolated main principal direction
+     vector. lets first normalize it. */
+  RT[0] = RT[0].normalize();
+  /* now the next principal direction should roughly align
+     with R[1], but first it must be orthogonal to R[0].
+     so, remove its component along R[0] (remember R[0] is unit length)*/
+  RT[1] = RT[1] - RT[0]*(RT[0]*RT[1]);
+  /* and normalize it too */
+  RT[1] = RT[1].normalize();
+  /* finally, forget what was in R[2] and just make it the cross
+     product of R[0] and R[1] to make a nice frame */
+  RT[2] = apf::cross(RT[0],RT[1]);
+  /* and back out of the transpose */
+  /* if you're wondering, this is why R and h are stored separately:
+     so we can do this interpolation dance on the rotation matrix */
   R = transpose(RT);
 }
 
@@ -149,13 +167,13 @@ class SizeFieldIntegrator : public apf::Integrator
    entity type */
 static double parentMeasure[TYPES] =
 {0.0     //vert
-,2.0     //edge - not sure
+,2.0     //edge
 ,1.0/2.0 //tri
-,4.0     //quad - not sure
+,4.0     //quad
 ,1.0/6.0 //tet
 ,-42.0   //hex - definitely not sure
 ,-42.0   //prism - definitely not sure
-,-42.0   //pyramid - definitely not sure
+,8.0/3.0 //pyramid
 };
 
 struct MetricSizeField : public SizeField
@@ -381,6 +399,33 @@ struct IsoSizeField : public AnisoSizeField
   IsoWrapper wrapper;
 };
 
+class FieldReader : public IsotropicFunction
+{
+  public:
+    FieldReader(apf::Field* f)
+    {
+      field = f;
+      assert(apf::getValueType(field)==apf::SCALAR);
+      assert(apf::getShape(field)==apf::getMesh(field)->getShape());
+    }
+    virtual ~FieldReader() {}
+    virtual double getValue(Entity* vert)
+    {
+      return apf::getScalar(field,vert,0);
+    }
+    apf::Field* field;
+};
+
+struct IsoUserField : public IsoSizeField
+{
+  IsoUserField(Mesh* m, apf::Field* f):
+    IsoSizeField(m, &reader),
+    reader(f)
+  {
+  }
+  FieldReader reader;
+};
+
 SizeField* makeSizeField(Mesh* m, apf::Field* sizes, apf::Field* frames)
 {
   MetricSizeField* f = new MetricSizeField();
@@ -396,6 +441,11 @@ SizeField* makeSizeField(Mesh* m, AnisotropicFunction* f)
 SizeField* makeSizeField(Mesh* m, IsotropicFunction* f)
 {
   return new IsoSizeField(m, f);
+}
+
+SizeField* makeSizeField(Mesh* m, apf::Field* size)
+{
+  return new IsoUserField(m, size);
 }
 
 double getAverageEdgeLength(Mesh* m)

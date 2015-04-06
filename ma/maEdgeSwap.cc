@@ -299,10 +299,55 @@ class EdgeSwap2D : public EdgeSwap
       quad[1] = getTriVertOppositeEdge(mesh,oldFaces[0],edge);
       quad[3] = getTriVertOppositeEdge(mesh,oldFaces[1],edge);
     }
+    void orient()
+    {
+      /* for surface meshes with oriented triangle normals,
+         this code checks whether we are looking at the mesh "upside-down"
+         and flips us right-side-up if so.
+         this can be done with just adjacency orders,
+         no floating point math. */
+      if (!isTriEdgeAligned(mesh,oldFaces[1],edge)) {
+        std::swap(oldFaces[0],oldFaces[1]);
+        std::swap(quad[1],quad[3]);
+      }
+    }
+    void getOldVerts(Entity* otv[2][3])
+    {
+      otv[0][0] = quad[0]; otv[0][1] = quad[1]; otv[0][2] = quad[2];
+      otv[1][0] = quad[0]; otv[1][1] = quad[2]; otv[1][2] = quad[3];
+    }
+    void getNewVerts(Entity* ntv[2][3])
+    {
+      ntv[0][0] = quad[1]; ntv[0][1] = quad[3]; ntv[0][2] = quad[0];
+      ntv[1][0] = quad[1]; ntv[1][1] = quad[2]; ntv[1][2] = quad[3];
+    }
+    bool wouldInvert()
+    {
+      /* again, for surface meshes, we now check
+         whether we have a situation where the new normals
+         would oppose the old ones */
+      Entity* otv[2][3];
+      getOldVerts(otv);
+      Entity* ntv[2][3];
+      getNewVerts(ntv);
+      Vector on[2];
+      on[0] = getTriNormal(mesh, otv[0]); on[1] = getTriNormal(mesh, otv[1]);
+      Vector nn[2];
+      nn[0] = getTriNormal(mesh, ntv[0]); nn[1] = getTriNormal(mesh, ntv[1]);
+      if ((on[0] * nn[0] > 0) &&
+          (on[0] * nn[1] > 0) &&
+          (on[1] * nn[0] > 0) &&
+          (on[1] * nn[1] > 0))
+        return false;
+      return true;
+    }
     bool checkTopo()
     {
       Entity* ev[2];
       ev[0] = quad[1]; ev[1] = quad[3];
+      /* check whether the "other" edge already exists, which
+         means we are dealing with a single tet with two faces
+         on the model face. we can't swap the edge between those faces. */
       return ! findElement(mesh,EDGE,ev);
     }
     bool setEdge(Entity* e)
@@ -317,24 +362,6 @@ class EdgeSwap2D : public EdgeSwap
       return getWorstQuality(adapter,newFaces,2)
            > getWorstQuality(adapter,oldFaces);
     }
-    bool areNormalsOk()
-    {
-      /* in 2D, we try to prevent inverted triangles.
-         using dot products, we check whether
-         the new normals are at more than right angles to the old normals.
-
-         note that we don't require the old faces to be
-         oriented to the model face, so we get the vertices
-         from the "quad" points found before. */
-      Entity* ov[2][3] = {{quad[0],quad[1],quad[2]}
-                         ,{quad[0],quad[2],quad[3]}};
-      Entity* nv[2][3] = {{quad[1],quad[3],quad[0]}
-                         ,{quad[1],quad[2],quad[3]}};
-      return isTwoTriAngleAcute(mesh,ov[0],nv[0])
-          && isTwoTriAngleAcute(mesh,ov[0],nv[1])
-          && isTwoTriAngleAcute(mesh,ov[1],nv[0])
-          && isTwoTriAngleAcute(mesh,ov[1],nv[1]);
-    }
     void destroyOldFaces()
     {
       destroyElement(adapter,oldFaces[0]);
@@ -348,16 +375,13 @@ class EdgeSwap2D : public EdgeSwap
     void makeNewFaces()
     {
       Model* c = mesh->toModel(edge);
-      Entity* tv[3];
-      tv[0] = quad[1]; tv[1] = quad[3]; tv[2] = quad[0];
-      newFaces[0] = buildElement(adapter,c,TRI,tv);
-      tv[0] = quad[1]; tv[1] = quad[2]; tv[2] = quad[3];
-      newFaces[1] = buildElement(adapter,c,TRI,tv);
+      Entity* ntv[2][3];
+      getNewVerts(ntv);
+      newFaces[0] = buildElement(adapter,c,TRI,ntv[0]);
+      newFaces[1] = buildElement(adapter,c,TRI,ntv[1]);
     }
-    bool check2D()
-    {
-      return didImproveQuality() && areNormalsOk();
-    }
+    /* this function is only called when swapping
+       edges on a surface triangle mesh */
     virtual bool run(Entity* e)
     {
       if (getFlag(adapter,e,DONT_SWAP))
@@ -366,18 +390,19 @@ class EdgeSwap2D : public EdgeSwap
         return false;
       if ( ! setEdge(e))
         return false;
+      orient();
+      if (wouldInvert())
+        return false;
       cavity.beforeBuilding();
       makeNewFaces();
       cavity.afterBuilding();
       cavity.fit(oldFaces);
-      if ( ! check2D())
+      if ( ! didImproveQuality())
       {
         cancel();
         return false;
       }
-      EntityArray oe(2);
-      oe[0] = oldFaces[0]; oe[1] = oldFaces[1];
-      cavity.transfer(oe);
+      cavity.transfer(oldFaces);
       destroyOldFaces();
       return true;
     }
@@ -440,7 +465,7 @@ class SwapLoop
       }
       return 0;
     }
-    void findFromFace(Entity* const startFace)
+    void findFromFace(Entity* startFace)
     {
       Entity* face = startFace;
       Entity* tet = 0;
@@ -465,6 +490,9 @@ class SwapLoop
    record it for classifying new ones */
         if ( ! model)
           model = mesh->toModel(tet);
+        else if (model != mesh->toModel(tet))
+          break; /* this is analogous to (!tet) when
+                    we cross a non-manifold face */
         face = getOtherFace(face,tet);
         assert(face);
         if (face == startFace)
@@ -625,7 +653,7 @@ class SwapCavity
       triangleOk.setSize(unique_count);
       triangleChecked.setSize(unique_count);
       for (int i=0; i < unique_count; ++i)
-        triangleChecked[i]=false;
+        triangleChecked[i] = false;
       triangulation.setSize(triangulation_size[loop.getSize()]);
       for (int i=0; i < triangulation_count[loop.getSize()]; ++i)
         if (tryTriangulation(i))
@@ -644,8 +672,8 @@ class SwapCavity
     ShapeHandler* shape;
     Mesh* mesh;
     SwapLoop loop;
-    apf::DynamicArray<bool> triangleOk;
-    apf::DynamicArray<bool> triangleChecked;
+    apf::DynamicArray<int> triangleOk;
+    apf::DynamicArray<int> triangleChecked;
     apf::DynamicArray<int> triangulation;
     EntityArray tets;
     double qualityToBeat;

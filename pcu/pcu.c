@@ -7,35 +7,37 @@
   BSD license as described in the LICENSE file in the top-level directory.
 
 *******************************************************************************/
-/** \file pcu.c */
-/** \mainpage Introduction
-  PCU (Parallel Control Utility) is a library for parallel computation based on
-  MPI with additional support for hybrid MPI/thread environments.
+/** \file pcu.c
+    \brief The PCU communication interface */
+/** \page pcu PCU
+  PCU (the Parallel Control Utility) is a library for parallel computation
+  based on MPI with additional support for hybrid MPI/thread environments.
   PCU provides three things to users:
     1. A hybrid phased message passing system
     2. Hybrid collective operations
     3. A thread management system
 
   Phased message passing is similar to Bulk Synchronous Parallel.
-  All messages are exchanged in a phase, which is a collective over
-  all threads in the parallel program.
+  All messages are exchanged in a phase, which is a collective operation
+  involving all threads in the parallel program.
   During a phase, the following events happen in sequence:
     1. All threads send non-blocking messages to other threads
     2. All threads receive all messages sent to them during this phase
   PCU provides termination detection, which is the ability to detect when all
-  messages have been received without prior knowledge of
-  which threads are sending to which.
+  messages have been received without prior knowledge of which threads
+  are sending to which.
 
   To write hybrid MPI/thread programs, PCU provides a function that creates
-  threads within an MPI process, similar to the way
-  mpirun creates multiple processes.
-  PCU assigns ranks to these threads and has them each run the same function,
-  with thread-specific input arguments to the function.
+  threads within an MPI process, similar to the way mpirun creates multiple
+  processes. PCU assigns ranks to these threads and has them each run the same
+  function, with thread-specific input arguments to the function.
 
   Once a program has created threads using PCU, it can call the message passing
-  API from within threads, which behaves as if each thread were an MPI rank.
-  Threads have unique ranks and can send messages to one another,
-  regardless of which process they are in.
+  API from within threads, which will behave as if each thread
+  were an MPI process. Threads have unique ranks and can send messages
+  to one another, regardless of which process they are in.
+
+  The API documentation is here: pcu.c
 */
 
 #include <string.h>
@@ -45,6 +47,7 @@
 #include "pcu_common.h"
 #include "pcu_msg.h"
 #include "pcu_pmpi.h"
+#include "pcu_order.h"
 
 #if ENABLE_THREADS
 #include "pcu_thread.h"
@@ -61,6 +64,7 @@ enum state { uninit, init };
 static enum state global_state = uninit;
 static pcu_msg global_pmsg;
 #if ENABLE_THREADS
+bool global_ordered = false;
 static pcu_msg* global_tmsg = NULL;
 static PCU_Thrd_Func global_function = NULL;
 static void** global_args = NULL;
@@ -99,6 +103,8 @@ int PCU_Comm_Free(void)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Free called before Comm_Init");
+  if (global_pmsg.order)
+    pcu_order_free(global_pmsg.order);
   pcu_free_msg(&global_pmsg);
   pcu_pmpi_finalize();
   global_state = uninit;
@@ -111,8 +117,8 @@ int PCU_Comm_Free(void)
 
   When called from a thread inside PCU_Thrd_Run, the rank is unique to a thread
   in the whole MPI job.
-  Ranks are consecutive from 0 to \f$pt-1\f$ for a program with \f$p\f$
-  processes and \f$t\f$ threads per process.
+  Ranks are consecutive from 0 to \f$pt-1\f$ for a program with
+  \f$p\f$ processes and \f$t\f$ threads per process.
   Ranks are contiguous within a process, so that the \f$t\f$ threads in process
   \f$i\f$ are numbered from \f$ti\f$ to \f$ti+t-1\f$.
  */
@@ -170,9 +176,9 @@ int PCU_Comm_Pack(int to_rank, const void* data, size_t size)
 /** \brief Sends all buffers for this communication phase.
   \details This function should be called by all threads in the MPI job
   after calls to PCU_Comm_Pack or PCU_Comm_Write and before calls
-  to PCU_Comm_Receive or PCU_Comm_Read.
-  All buffers from this thread are sent out and
-  receiving may begin after this call.
+  to PCU_Comm_Listen or PCU_Comm_Read.
+  All buffers from this thread are sent out and receiving
+  may begin after this call.
  */
 int PCU_Comm_Send(void)
 {
@@ -184,13 +190,12 @@ int PCU_Comm_Send(void)
 
 /** \brief Tries to receive a buffer for this communication phase.
   \details Either this function or PCU_Comm_Read should be called at least
-  once by all threads during the communication phase,
-  after PCU_Comm_Send is called.
-  The result will be false if and only if the communication phase
+  once by all threads during the communication phase, after PCU_Comm_Send
+  is called. The result will be false if and only if the communication phase
   is over and there are no more buffers to receive.
   Otherwise, a buffer was received.
-  Its contents are retrievable through PCU_Comm_Unpack, and its metadata
-  through PCU_Comm_Sender and PCU_Comm_Received.
+  Its contents are retrievable through PCU_Comm_Unpack, and its metadata through
+  PCU_Comm_Sender and PCU_Comm_Received.
   Users should unpack all data from this buffer before calling this function
   again, because the previously received buffer is destroyed by the call.
  */
@@ -198,48 +203,74 @@ bool PCU_Comm_Listen(void)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Listen called before Comm_Init");
-  return pcu_msg_receive(get_msg());
+  pcu_msg* m = get_msg();
+  if (m->order)
+    return pcu_order_receive(m->order, m);
+  return pcu_msg_receive(m);
 }
 
 /** \brief Returns in * \a from_rank the sender of the current received buffer.
-  \details This function should be called after a successful PCU_Comm_Receive.
+  \details This function should be called after a successful PCU_Comm_Listen.
  */
 int PCU_Comm_Sender(void)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Sender called before Comm_Init");
-  return pcu_msg_received_from(get_msg());
+  pcu_msg* m = get_msg();
+  if (m->order)
+    return pcu_order_received_from(m->order);
+  return pcu_msg_received_from(m);
 }
 
-/** \brief Returns true if the receive buffer has been completely unpacked.
-  \details This function should be called after a successful PCU_Comm_Receive.
+/** \brief Returns true if the current received buffer has been unpacked.
+  \details This function should be called after a successful PCU_Comm_Listen.
  */
 bool PCU_Comm_Unpacked(void)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Unpacked called before Comm_Init");
-  return pcu_msg_unpacked(get_msg());
+  pcu_msg* m = get_msg();
+  if (m->order)
+    return pcu_order_unpacked(m->order);
+  return pcu_msg_unpacked(m);
 }
 
 /** \brief Unpacks a block of data from the current received buffer.
-  \details This function should be called after a successful PCU_Comm_Receive.
-  \a data must point to a block of memory of at least \a size bytes,
-  into which the next \a size bytes of the current
-  received buffer will be written.
+  \details This function should be called after a successful PCU_Comm_Listen.
+  \a data must point to a block of memory of at least \a size bytes, into
+  which the next \a size bytes of the current received buffer will be written.
   Subsequent calls will begin unpacking where this call left off,
   so that the entire received buffer can be unpacked by a sequence of calls to
   this function.
-  It is up to the user to ensure there remains \a size bytes to be unpacked,
+  Users must ensure that there remain \a size bytes to be unpacked,
   PCU_Comm_Unpacked can help with this.
  */
 int PCU_Comm_Unpack(void* data, size_t size)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Unpack called before Comm_Init");
-  memcpy(data,pcu_msg_unpack(get_msg(),size),size);
+  pcu_msg* m = get_msg();
+  if (m->order)
+    memcpy(data,pcu_order_unpack(m->order,size),size);
+  else
+    memcpy(data,pcu_msg_unpack(m,size),size);
   return PCU_SUCCESS;
 }
 
+void PCU_Comm_Order(bool on)
+{
+  if (global_state == uninit)
+    pcu_fail("Comm_Order called before Comm_Init");
+  pcu_msg* m = get_msg();
+  if (on && (!m->order))
+    m->order = pcu_order_new();
+  if ((!on) && m->order) {
+    pcu_order_free(m->order);
+    m->order = NULL;
+  }
+}
+
+/** \brief Blocking barrier over all threads. */
 void PCU_Barrier(void)
 {
   if (global_state == uninit)
@@ -365,14 +396,17 @@ static void* run(void* in)
   /* this wrapper around the user thread function
      sets up the PCU thread environment, including
      thread rank and thread-local messenger */
-  (void)in;
-  pcu_thread_init();
+  pcu_thread_init(in);
   int rank = pcu_thread_rank();
   pcu_make_msg(global_tmsg + rank);
+  PCU_Comm_Order(global_ordered);
   if (global_args)
     global_args[rank] = global_function(global_args[rank]);
   else
     global_function(NULL);
+  if (!rank)
+    global_ordered = global_tmsg[rank].order != NULL;
+  PCU_Comm_Order(false);
   pcu_free_msg(global_tmsg + rank);
   return NULL;
 }
@@ -386,8 +420,8 @@ static void* run(void* in)
   If in_out is NULL, all threads will receive NULL as their argument.
 
   Currently, PCU requires that this call is collective and homogeneous.
-  This means that all processes should call PCU_Thrd_Run at the same time,
-  and they should all pass the same number for \a nthreads.
+  This means that all processes in an MPI job should call PCU_Thrd_Run
+  at the same time, and they should all pass the same number for \a nthreads.
   MPI_Init_thread should have been called before this function.
 
   Any calls to PCU_Comm functions from within one of these threads
@@ -405,6 +439,8 @@ int PCU_Thrd_Run(int nthreads, PCU_Thrd_Func function, void** in_out)
   if (pcu_get_mpi() == &pcu_tmpi)
     pcu_fail("nested calls to Thrd_Run");
   pcu_tmpi_check_support();
+  global_ordered = global_pmsg.order != NULL;
+  PCU_Comm_Order(false);
   pcu_free_msg(&global_pmsg);
   pcu_tmpi_init(nthreads);
   pcu_set_mpi(&pcu_tmpi);
@@ -416,6 +452,7 @@ int PCU_Thrd_Run(int nthreads, PCU_Thrd_Func function, void** in_out)
   pcu_set_mpi(&pcu_pmpi);
   pcu_tmpi_free();
   pcu_make_msg(&global_pmsg);
+  PCU_Comm_Order(global_ordered);
 #else
   (void)nthreads;//unused parameter warning silencer
   (void)function;
@@ -441,8 +478,8 @@ int PCU_Thrd_Self(void)
 }
 
 /** \brief Returns the number of threads running in the current process.
-  \details When called from a thread inside PCU_Thrd_Run,
-  returns the number of threads running in this process,
+  \details When called from a thread inside PCU_Thrd_Run, returns the number
+  of threads running in this process,
   which is equivalent to the nthreads argument to PCU_Thrd_Run.
  */
 int PCU_Thrd_Peers(void)
@@ -456,13 +493,37 @@ int PCU_Thrd_Peers(void)
 
 /** \brief Blocks all threads of a process until all have hit the barrier.
  */
-void PCU_Thrd_Barrier (void)
+void PCU_Thrd_Barrier(void)
 {
   if (global_state == uninit)
     pcu_fail("Thrd_Barrier called before Comm_Init");
 #if ENABLE_THREADS  
   if (pcu_get_mpi()==&pcu_tmpi)
     pcu_thread_barrier();
+#endif
+}
+
+/** \brief Acquire the PCU master spinlock.
+  \details usage is discouraged, this function
+  and PCU_Thrd_Unlock exist as a patch to allow
+  people to use thread-unsafe third-party code
+  at the expense of performance by serializing
+  calls to said code.
+ */
+void PCU_Thrd_Lock(void)
+{
+#if ENABLE_THREADS  
+  if (pcu_get_mpi()==&pcu_tmpi)
+    pcu_thread_lock();
+#endif
+}
+
+/** \brief Release the PCU master spinlock. */
+void PCU_Thrd_Unlock(void)
+{
+#if ENABLE_THREADS  
+  if (pcu_get_mpi()==&pcu_tmpi)
+    pcu_thread_unlock();
 #endif
 }
 
@@ -503,6 +564,7 @@ int PCU_Comm_Size(int* size)
   return PCU_SUCCESS;
 }
 
+/** \brief Returns true iff PCU has been initialized */
 bool PCU_Comm_Initialized(void)
 {
   return global_state == init;
@@ -555,13 +617,13 @@ int PCU_Comm_Write(int to_rank, const void* data, size_t size)
   return PCU_SUCCESS;
 }
 
-/** \brief Similar to PCU_Comm_Listen, returns the status as an argument. */
-int PCU_Comm_Receive(bool* done)
+/** \brief Convenience wrapper over Listen and Unpacked */
+bool PCU_Comm_Receive(void)
 {
-  if (global_state == uninit)
-    pcu_fail("Comm_Receive called before Comm_Init");
-  *done = ! pcu_msg_receive(get_msg());
-  return PCU_SUCCESS;
+  while (PCU_Comm_Unpacked())
+    if (!PCU_Comm_Listen())
+      return false;
+  return true;
 }
 
 /** \brief Receives a message for this communication phase.
@@ -580,16 +642,15 @@ bool PCU_Comm_Read(int* from_rank, void** data, size_t* size)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Read called before Comm_Init");
-  pcu_msg* msg = get_msg();
-  if (pcu_msg_unpacked(msg))
-    if ( ! pcu_msg_receive(msg))
-      return false;
-  PCU_MSG_UNPACK(msg,*size);
-  *data = pcu_msg_unpack(msg,*size);
-  *from_rank = pcu_msg_received_from(msg);
+  if (!PCU_Comm_Receive())
+    return false;
+  *from_rank = PCU_Comm_Sender();
+  PCU_COMM_UNPACK(*size);
+  *data = PCU_Comm_Extract(*size);
   return true;
 }
 
+/** \brief Open file debugN.txt, where N = PCU_Comm_Self(). */
 void PCU_Debug_Open(void)
 {
   if (global_state == uninit)
@@ -599,6 +660,7 @@ void PCU_Debug_Open(void)
     msg->file = pcu_open_parallel("debug","txt");
 }
 
+/** \brief like fprintf, contents go to debugN.txt */
 void PCU_Debug_Print(const char* format, ...)
 {
   if (global_state == uninit)
@@ -618,7 +680,11 @@ int PCU_Comm_From(int* from_rank)
 {
   if (global_state == uninit)
     pcu_fail("Comm_From called before Comm_Init");
-  *from_rank = pcu_msg_received_from(get_msg());
+  pcu_msg* m = get_msg();
+  if (m->order)
+    *from_rank = pcu_order_received_from(m->order);
+  else
+    *from_rank = pcu_msg_received_from(m);
   return PCU_SUCCESS;
 }
 
@@ -631,7 +697,11 @@ int PCU_Comm_Received(size_t* size)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Received called before Comm_Init");
-  *size = pcu_msg_received_size(get_msg());
+  pcu_msg* m = get_msg();
+  if (m->order)
+    *size = pcu_order_received_size(m->order);
+  else
+    *size = pcu_msg_received_size(m);
   return PCU_SUCCESS;
 }
 
@@ -645,9 +715,20 @@ void* PCU_Comm_Extract(size_t size)
 {
   if (global_state == uninit)
     pcu_fail("Comm_Extract called before Comm_Init");
-  return pcu_msg_unpack(get_msg(),size);
+  pcu_msg* m = get_msg();
+  if (m->order)
+    return pcu_order_unpack(m->order,size);
+  return pcu_msg_unpack(m,size);
 }
 
+/** \brief Reinitializes PCU with a new MPI communicator.
+ \details All of PCU's logic is based off two duplicates
+ of this communicator, so you can safely get PCU to act
+ on sub-groups of processes using this function.
+ This call should be collective over all processes
+ in the previous communicator.
+ Please do not mix this feature with PCU threading. 
+ */
 void PCU_Switch_Comm(MPI_Comm new_comm)
 {
   if (global_state == uninit)
@@ -655,4 +736,20 @@ void PCU_Switch_Comm(MPI_Comm new_comm)
   pcu_pmpi_switch(new_comm);
 }
 
+/** \brief Return the current MPI communicator
+  \details Returns the communicator given to the 
+  most recent PCU_Switch_Comm call, or MPI_COMM_WORLD
+  otherwise.
+ */
+MPI_Comm PCU_Get_Comm(void)
+{
+  if (global_state == uninit)
+    pcu_fail("Get_Comm called before Comm_Init");
+  return pcu_pmpi_comm();
+}
+
+double PCU_Time(void)
+{
+  return MPI_Wtime();
+}
 

@@ -4,13 +4,14 @@
 #include <vector>
 #include <map>
 #include <apfNumbering.h>
+#include "apfZoltan.h"
 
 namespace ph {
 
 struct LinkKey
 {
-  LinkKey(bool s, int p):send(s),peer(p) {}
-  bool send;
+  LinkKey(int s, int p):send(s),peer(p) {}
+  int send;
   int peer;
   bool operator<(LinkKey const& other) const;
 };
@@ -19,9 +20,13 @@ typedef std::vector<apf::MeshEntity*> Link;
 
 typedef std::map<LinkKey, Link> Links;
 
-void getVertexLinks(apf::Mesh* m, Links& links);
+void getLinks(apf::Mesh* m, int dim, Links& links);
 
-void encodeLinks(apf::Numbering* n, Links& links, size_t& size, int*& a);
+void encodeILWORK(apf::Numbering* n, Links& links, int& size, int*& a);
+
+void encodeILWORKF(apf::Numbering* n, Links& links, int& size, int*& a);
+
+int* formIENNEIGH(apf::Numbering* ln);
 
 }
 

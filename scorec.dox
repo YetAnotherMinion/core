@@ -1,0 +1,18 @@
+/** \mainpage The SCOREC core tools
+
+Welcome to the SCOREC core documentation.
+The following packages are documented:
+- \subpage pcu
+- \subpage apf
+- \subpage mds
+- \subpage ma
+- \subpage gmi
+- \subpage zoltan
+- \subpage parma
+- \subpage spr
+- \subpage dwr
+- \subpage viz
+
+Repository Home: https://github.com/SCOREC/core/wiki
+
+*/

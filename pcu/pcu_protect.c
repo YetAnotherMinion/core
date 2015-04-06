@@ -1,13 +1,19 @@
+#include <stdio.h>
+#include "pcu_io.h" 
+
+#if defined(__linux__) || defined(__APPLE__)
 #include <execinfo.h> /* backtrace for pcu_trace */
-#include <stdio.h> /* stderr for pcu_trace */
 #include <signal.h> /* signal for pcu_protect */
 
 void PCU_Trace(void)
 {
+  FILE* fp = pcu_open_parallel("trace","txt");
+  int fd = fileno(fp);
   static void* buf[64];
   int n;
   n = backtrace(buf, 64);
-  backtrace_symbols_fd(buf, n, 2);
+  backtrace_symbols_fd(buf, n, fd);
+  fclose(fp);
 }
 
 static void catch(int s)
@@ -28,4 +34,10 @@ void PCU_Protect(void)
   signal(SIGSEGV, catch);
   signal(SIGINT, catch);
 }
+#else
+void PCU_Protect(void)
+{
+  fprintf(stderr,"PCU_Protect only supported on Linux and OS X\n");
+}
+#endif
 

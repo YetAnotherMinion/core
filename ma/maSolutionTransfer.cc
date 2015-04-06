@@ -100,6 +100,7 @@ class LinearTransfer : public FieldTransfer
       apf::Element* e = apf::createElement(field,parent);
       apf::getComponents(e,xi,&(value[0]));
       apf::setComponents(field,vert,0,&(value[0]));
+      apf::destroyElement(e);
     }
 };
 
@@ -257,7 +258,6 @@ SolutionTransfer* createFieldTransfer(apf::Field* f)
   /* turn this back on when IP fields are
      set up with shape functions */
   return new CavityTransfer(f);
-  return 0;
 }
 
 SolutionTransfers::SolutionTransfers()

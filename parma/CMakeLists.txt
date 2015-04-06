@@ -17,44 +17,62 @@ SET(PARMA_EXTERNAL_HEADERS parma.h)
 SET(API_SOURCE parma.cc)
 
 ######################################################################
-set(PARMADIFFMC_MAJOR_VERSION 1)
-set(PARMADIFFMC_MINOR_VERSION 0)
-set(PARMADIFFMC_PATCH_VERSION 0)
-configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/diffMC/src/parma_diffmcversion.h.in"
-  "${CMAKE_CURRENT_SOURCE_DIR}/diffMC/src/parma_diffmcversion.h"
-  @ONLY
-  )
-
 SET(DIFFMC_SOURCES  
-  diffMC/src/parma_base.cc
-  diffMC/src/parma_centroid.cc
-  diffMC/src/parma_commons.cc
-  diffMC/src/parma_dcpart.cc
-  diffMC/src/parma_diffmc.cc
-  diffMC/src/parma_elmBdrySides.cc
-  diffMC/src/parma_entWeights.cc
-  diffMC/src/parma_ghost.cc
-  diffMC/src/parma_ghostWeights.cc
-  diffMC/src/parma_hist.cc
-  diffMC/src/parma_hpsBalancer.cc
-  diffMC/src/parma_imbinfo.cc
-  diffMC/src/parma_partinfo.cc
-  diffMC/src/parma_priority.cc
-  diffMC/src/parma_vtxBalancer.cc
-  diffMC/src/parma_vtxSelector.cc
-  diffMC/src/parma_weightTargets.cc
+  diffMC/parma_balancer.cc
+  diffMC/parma_bdryVtx.cc
+  diffMC/parma_centroidDiffuser.cc
+  diffMC/parma_centroids.cc
+  diffMC/parma_centroidSelector.cc
+  diffMC/parma_commons.cc
+  diffMC/parma_components.cc
+  diffMC/parma_dcpart.cc
+  diffMC/parma_dcpartFixer.cc
+  diffMC/parma_dijkstra.cc
+  diffMC/parma_edgeBalancer.cc
+  diffMC/parma_edgeSelector.cc
+  diffMC/parma_elmBalancer.cc
+  diffMC/parma_elmBdrySides.cc
+  diffMC/parma_elmSideSides.cc
+  diffMC/parma_elmLtVtxSelector.cc
+  diffMC/parma_elmSelector.cc
+  diffMC/parma_vtxSides.cc
+  diffMC/parma_entWeights.cc
+  diffMC/parma_ghost.cc
+  diffMC/parma_ghostOwner.cc
+  diffMC/parma_ghostWeights.cc
+  diffMC/parma_graphDist.cc
+  diffMC/parma_hpsBalancer.cc
+  diffMC/parma_monitor.cc
+  diffMC/parma_sides.cc
+  diffMC/parma_step.cc
+  diffMC/parma_stop.cc
+  diffMC/parma_shapeOptimizer.cc
+  diffMC/parma_shapeTargets.cc
+  diffMC/parma_shapeSelector.cc
+  diffMC/parma_vtxBalancer.cc
+  diffMC/parma_vtxSelector.cc
+  diffMC/parma_weightTargets.cc
+  diffMC/parma_weightSideTargets.cc
+  diffMC/parma_vtxElmTargets.cc
+  diffMC/parma_vtxEdgeElmTargets.cc
+  diffMC/parma_vtxEdgeElmBalancer.cc
+  diffMC/parma_vtxElmBalancer.cc
+  diffMC/zeroOneKnapsack.c
+  diffMC/maximalIndependentSet/misLuby.cc
   )
 
 SET(RIB_SOURCES  
-  rib/parma_rib_math.cc 
   rib/parma_rib.cc 
   rib/parma_mesh_rib.cc 
   )
 
+SET(GROUP_SOURCES  
+  group/parma_group.cc 
+  )
+
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
-INCLUDE_DIRECTORIES(diffMC/src)
+INCLUDE_DIRECTORIES(diffMC)
 
 if(NOT BUILD_IN_TRILINOS) 
   set(parmaIncDirs 
@@ -70,12 +88,13 @@ SET(parmaDepLibs ${APF_LIBS})
 if(BUILD_IN_TRILINOS)
   TRIBITS_ADD_LIBRARY(
     parma
-    SOURCES ${DIFFMC_SOURCES} ${RIB_SOURCES} ${API_SOURCE}
+    SOURCES ${DIFFMC_SOURCES} ${RIB_SOURCES} ${GROUP_SOURCES} ${API_SOURCE}
     HEADERS ${PARMA_EXTERNAL_HEADERS})
 else(BUILD_IN_TRILINOS)
   ADD_LIBRARY(parma 
     ${DIFFMC_SOURCES}
     ${RIB_SOURCES}
+    ${GROUP_SOURCES}
     ${API_SOURCE})
   target_link_libraries(parma ${parmaDepLibs})
 endif(BUILD_IN_TRILINOS)

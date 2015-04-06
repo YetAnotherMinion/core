@@ -5,12 +5,13 @@
  * BSD license as described in the LICENSE file in the top-level directory.
  */
 
+#include <PCU.h>
 #include "apfCoordData.h"
 #include "apfVectorField.h"
 #include "apfShape.h"
 #include "apfNumbering.h"
 #include "apfTagData.h"
-#include <PCU.h>
+#include <gmi.h>
 
 namespace apf {
 
@@ -111,6 +112,17 @@ int const Mesh::typeDimension[TYPES] =
   3 //pyramid
 };
 
+char const* const Mesh::typeName[TYPES] =
+{"vertex",
+ "edge",
+ "triangle",
+ "quad",
+ "tet",
+ "hex",
+ "prism",
+ "pyramid"
+};
+
 void Mesh::init(FieldShape* s)
 {
   coordinateField = new VectorField();
@@ -126,9 +138,48 @@ Mesh::~Mesh()
   delete coordinateField;
 }
 
-int Mesh::getEntityDimension(int type)
+int Mesh::getModelType(ModelEntity* e)
 {
-  return Mesh::typeDimension[type];
+  return gmi_dim(getModel(), (gmi_ent*)e);
+}
+
+int Mesh::getModelTag(ModelEntity* e)
+{
+  return gmi_tag(getModel(), (gmi_ent*)e);
+}
+
+ModelEntity* Mesh::findModelEntity(int type, int tag)
+{
+  return (ModelEntity*)gmi_find(getModel(), type, tag);
+}
+
+bool Mesh::canSnap()
+{
+  return gmi_can_eval(getModel());
+}
+
+void Mesh::snapToModel(ModelEntity* m, Vector3 const& p, Vector3& x)
+{
+  gmi_eval(getModel(), (gmi_ent*)m, &p[0], &x[0]);
+}
+
+void Mesh::getParamOn(ModelEntity* g, MeshEntity* e, Vector3& p)
+{
+  ModelEntity* from_g = toModel(e);
+  if (g == from_g)
+    return getParam(e, p);
+  gmi_ent* from = (gmi_ent*)from_g;
+  gmi_ent* to = (gmi_ent*)g;
+  Vector3 from_p;
+  getParam(e, from_p);
+  gmi_reparam(getModel(), from, &from_p[0], to, &p[0]);
+}
+
+bool Mesh::getPeriodicRange(ModelEntity* g, int axis, double range[2])
+{
+  gmi_ent* e = (gmi_ent*)g;
+  gmi_range(getModel(), e, axis, range);
+  return gmi_periodic(getModel(), e, axis);
 }
 
 void Mesh::getPoint(MeshEntity* e, int node, Vector3& p)
@@ -205,22 +256,45 @@ Numbering* Mesh::getNumbering(int i)
   return numberings[i];
 }
 
+void Mesh::addGlobalNumbering(GlobalNumbering* n)
+{
+  globalNumberings.push_back(n);
+}
+
+void Mesh::removeGlobalNumbering(GlobalNumbering* n)
+{
+  globalNumberings.erase(std::find(
+        globalNumberings.begin(), globalNumberings.end(), n));
+}
+
+int Mesh::countGlobalNumberings()
+{
+  return static_cast<int>(globalNumberings.size());
+}
+
+GlobalNumbering* Mesh::getGlobalNumbering(int i)
+{
+  return globalNumberings[i];
+}
+
+
 void unite(Parts& into, Parts const& from)
 {
   into.insert(from.begin(),from.end());
 }
 
-void getFacePeers(Mesh* m, Parts& peers)
+void getPeers(Mesh* m, int d, Parts& peers)
 {
-  MeshEntity* face;
-  MeshIterator* faces = m->begin(2);
-  while ((face = m->iterate(faces)))
+  assert(d < m->getDimension());
+  MeshEntity* e;
+  MeshIterator* ents = m->begin(d);
+  while ((e = m->iterate(ents)))
   {
     Parts residence;
-    m->getResidence(face,residence);
+    m->getResidence(e,residence);
     unite(peers,residence);
   }
-  m->end(faces);
+  m->end(ents);
   peers.erase(m->getId());
 }
 
@@ -242,6 +316,12 @@ Migration::Migration(Mesh* m)
 {
   mesh = m;
   tag = m->createIntTag("apf_migrate",1);
+}
+
+Migration::Migration(Mesh* m, MeshTag* existingTag)
+{
+  mesh = m;
+  tag = existingTag;
 }
 
 Migration::~Migration()
@@ -518,39 +598,13 @@ void unfreezeFields(Mesh* m) {
   m->hasFrozenFields = false;
 }
 
-std::pair<int,MeshEntity*> getOtherCopy(Mesh* m, MeshEntity* s)
+Copy getOtherCopy(Mesh* m, MeshEntity* s)
 {
   Copies remotes;
   m->getRemotes(s,remotes);
   assert(remotes.size()==1);
-  return *(remotes.begin());
-}
-
-bool hasCopies(Mesh* m, MeshEntity* e)
-{
-  if (!m->hasMatching())
-    return m->isShared(e);
-  Matches ms;
-  m->getMatches(e,ms);
-  return ms.getSize();
-}
-
-bool isOriginal(Mesh* m, MeshEntity* e)
-{
-  if (!m->hasMatching())
-    return m->isOwned(e);
-  Matches ms;
-  m->getMatches(e,ms);
-  int self = m->getId();
-  for (size_t i = 0; i < ms.getSize(); ++i)
-  {
-    if (ms[i].peer < self)
-      return false;
-    if ((ms[i].peer == self) &&
-        (ms[i].entity < e))
-      return false;
-  }
-  return true;
+  Copies::iterator it = remotes.begin();
+  return Copy(it->first, it->second);
 }
 
 int getDimension(Mesh* m, MeshEntity* e)
@@ -619,6 +673,279 @@ void printStats(Mesh* m)
   if (!PCU_Comm_Self())
     printf("mesh entity counts: v %ld e %ld f %ld r %ld\n",
         n[0], n[1], n[2], n[3]);
+}
+
+void warnAboutEmptyParts(Mesh* m)
+{
+  int emptyParts = 0;
+  if (!m->count(m->getDimension()))
+    ++emptyParts;
+  PCU_Add_Ints(&emptyParts, 1);
+  if (emptyParts && (!PCU_Comm_Self()))
+    fprintf(stderr,"APF warning: %d empty parts\n",emptyParts);
+}
+
+static void getRemotesArray(Mesh* m, MeshEntity* e, CopyArray& a)
+{
+  Copies remotes;
+  m->getRemotes(e, remotes);
+  a.setSize(remotes.size());
+  size_t i = 0;
+  APF_ITERATE(Copies, remotes, it) {
+    a[i].peer = it->first;
+    a[i].entity = it->second;
+    ++i;
+  }
+}
+
+struct NormalSharing : public Sharing
+{
+  NormalSharing(Mesh* m):mesh(m) {}
+  bool isOwned(MeshEntity* e)
+  {
+    return mesh->isOwned(e);
+  }
+  virtual void getCopies(MeshEntity* e,
+      CopyArray& copies)
+  {
+    if (!mesh->isShared(e))
+      return;
+    getRemotesArray(mesh, e, copies);
+  }
+  Mesh* mesh;
+};
+
+/* okay... so previously this used a min-rank rule
+   for matched copies, but thats inconsistent with
+   the min-count rule in MDS for regular copies,
+   and the usual partition model ignores matched
+   copies.
+   for now, we'll build a full neighbor count
+   system into this object just to implement
+   the min-count rule for matched neighbors */
+struct MatchedSharing : public Sharing
+{
+  MatchedSharing(Mesh* m):helper(m),mesh(m)
+  {
+    formCountMap();
+  }
+  size_t getNeighborCount(int peer)
+  {
+    assert(countMap.count(peer));
+    return countMap[peer];
+  }
+  bool isLess(Copy const& a, Copy const& b)
+  {
+    size_t ca = this->getNeighborCount(a.peer);
+    size_t cb = this->getNeighborCount(b.peer);
+    if (ca != cb)
+      return ca < cb;
+    if (a.peer != b.peer)
+      return a.peer < b.peer;
+    return a.entity < b.entity;
+  }
+  Copy getOwner(MeshEntity* e)
+  {
+    Copy owner(PCU_Comm_Self(), e);
+    CopyArray copies;
+    this->getCopies(e, copies);
+    APF_ITERATE(CopyArray, copies, cit)
+      if (this->isLess(*cit, owner))
+        owner = *cit;
+    return owner;
+  }
+  bool isOwned(MeshEntity* e)
+  {
+    Copy owner = this->getOwner(e);
+    return owner.peer == PCU_Comm_Self() && owner.entity == e;
+  }
+  void getCopies(MeshEntity* e,
+      CopyArray& copies)
+  {
+    mesh->getMatches(e, copies);
+    if (!copies.getSize())
+      helper.getCopies(e, copies);
+  }
+  void getNeighbors(Parts& neighbors)
+  {
+    MeshIterator* it = mesh->begin(0);
+    MeshEntity* v;
+    while ((v = mesh->iterate(it))) {
+      CopyArray copies;
+      this->getCopies(v, copies);
+      APF_ITERATE(CopyArray, copies, cit)
+        neighbors.insert(cit->peer);
+    }
+    mesh->end(it);
+    neighbors.erase(PCU_Comm_Self());
+  }
+  void formCountMap()
+  {
+    size_t count = mesh->count(mesh->getDimension());
+    countMap[PCU_Comm_Self()] = count;
+    PCU_Comm_Begin();
+    Parts neighbors;
+    getNeighbors(neighbors);
+    APF_ITERATE(Parts, neighbors, nit)
+      PCU_COMM_PACK(*nit, count);
+    PCU_Comm_Send();
+    while (PCU_Comm_Receive()) {
+      size_t oc;
+      PCU_COMM_UNPACK(oc);
+      countMap[PCU_Comm_Sender()] = oc;
+    }
+  }
+  NormalSharing helper;
+  Mesh* mesh;
+  std::map<int, size_t> countMap;
+};
+
+Sharing* getSharing(Mesh* m)
+{
+  if (m->hasMatching())
+    return new MatchedSharing(m);
+  return new NormalSharing(m);
+}
+
+static void getUpBridgeAdjacent(Mesh* m, MeshEntity* origin,
+    int bridgeDimension, int targetDimension,
+    std::set<MeshEntity*>& result)
+{
+  assert(targetDimension < bridgeDimension);
+  Adjacent bridges;
+  m->getAdjacent(origin, bridgeDimension, bridges);
+  for (size_t i = 0; i < bridges.getSize(); ++i) {
+    Downward targets;
+    int nt = m->getDownward(bridges[i], targetDimension, targets);
+    for (int j = 0; j < nt; ++j)
+      result.insert(targets[j]);
+  }
+}
+
+static void getDownBridgeAdjacent(Mesh* m, MeshEntity* origin,
+    int bridgeDimension, int targetDimension,
+    std::set<MeshEntity*>& result)
+{
+  assert(targetDimension > bridgeDimension);
+  std::set<MeshEntity*> s;
+  Downward bridges;
+  int nbridges = m->getDownward(origin, bridgeDimension, bridges);
+  for (int i = 0; i < nbridges; ++i) {
+    Adjacent targets;
+    m->getAdjacent(bridges[i], targetDimension, targets);
+    for (size_t j = 0; j < targets.getSize(); ++j)
+      result.insert(targets[j]);
+  }
+}
+
+void getBridgeAdjacent(Mesh* m, MeshEntity* origin,
+    int bridgeDimension, int targetDimension, Adjacent& result)
+{
+  assert(targetDimension != bridgeDimension);
+  std::set<MeshEntity*> s;
+  if (targetDimension < bridgeDimension)
+    getUpBridgeAdjacent(m, origin, bridgeDimension, targetDimension, s);
+  else
+    getDownBridgeAdjacent(m, origin, bridgeDimension, targetDimension, s);
+  s.erase(origin);
+  result.setSize(s.size());
+  if (s.size())
+    std::copy(s.begin(), s.end(), result.begin());
+}
+
+int getFirstType(Mesh* m, int dim)
+{
+  MeshIterator* it = m->begin(dim);
+  MeshEntity* e = m->iterate(it);
+  m->end(it);
+  return m->getType(e);
+}
+
+static int const* getVertIndices(int type, int subtype, int which)
+{
+  switch (subtype) {
+    case Mesh::EDGE:
+    switch (type) {
+      case Mesh::TRIANGLE:
+        return tri_edge_verts[which];
+      case Mesh::QUAD:
+        return quad_edge_verts[which];
+      case Mesh::TET:
+        return tet_edge_verts[which];
+    };
+    case Mesh::TRIANGLE:
+    switch (type) {
+      case Mesh::TET:
+        return tet_tri_verts[which];
+    };
+  };
+  fail("getVertIndices: types not supported\n");
+}
+
+void getAlignment(Mesh* m, MeshEntity* elem, MeshEntity* boundary,
+    int& which, bool& flip, int& rotate)
+{
+  Downward ev;
+  m->getDownward(elem, 0, ev);
+  Downward eb;
+  int neb = m->getDownward(elem, getDimension(m, boundary), eb);
+  which = findIn(eb, neb, boundary);
+  Downward bv;
+  int nbv = m->getDownward(boundary, 0, bv);
+  int const* vi = getVertIndices(m->getType(elem), m->getType(boundary), which);
+  Downward ebv;
+  for (int i = 0; i < nbv; ++i)
+    ebv[i] = ev[vi[i]];
+  int a = findIn(bv, nbv, ebv[0]);
+  int b = findIn(bv, nbv, ebv[1]);
+  if (b == (a + 1) % nbv)
+    flip = false;
+  else {
+    flip = true;
+    Downward tmp;
+    for (int i = 0; i < nbv; ++i)
+      tmp[nbv - i - 1] = bv[i];
+    for (int i = 0; i < nbv; ++i)
+      bv[i] = tmp[i];
+  }
+  rotate = findIn(bv, nbv, ebv[0]);
+}
+
+void packString(std::string s, int to)
+{
+  size_t len = s.length();
+  PCU_COMM_PACK(to, len);
+  PCU_Comm_Pack(to, s.c_str(), len);
+}
+
+std::string unpackString()
+{
+  std::string s;
+  size_t len;
+  PCU_COMM_UNPACK(len);
+  s.resize(len);
+  PCU_Comm_Unpack((void*)s.c_str(), len);
+  return s;
+}
+
+void packTagInfo(Mesh* m, MeshTag* t, int to)
+{
+  std::string name;
+  name = m->getTagName(t);
+  packString(name, to);
+  int type;
+  type = m->getTagType(t);
+  PCU_COMM_PACK(to, type);
+  int size;
+  size = m->getTagSize(t);
+  PCU_COMM_PACK(to, size);
+}
+
+void unpackTagInfo(std::string& name, int& type, int& size)
+{
+  name = unpackString();
+  PCU_COMM_UNPACK(type);
+  PCU_COMM_UNPACK(size);
 }
 
 } //namespace apf

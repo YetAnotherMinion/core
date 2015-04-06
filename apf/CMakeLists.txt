@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 2.8.6)
+set(PACKAGE_VERSION "1.0")
 
 if(BUILD_IN_TRILINOS)
    include(TribitsSubPackageMacros) 
@@ -10,10 +11,12 @@ endif()
 
 if(NOT BUILD_IN_TRILINOS)
   find_package(pcu PATHS ${CMAKE_BINARY_DIR})
+  find_package(gmi PATHS ${CMAKE_BINARY_DIR})
   set(APF_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PCU_INCLUDE_DIRS})
-  set(DEP_LIBS ${PCU_LIBS})
+    ${PCU_INCLUDE_DIRS}
+    ${GMI_INCLUDE_DIRS})
+  set(DEP_LIBS ${PCU_LIBS} ${GMI_LIBS})
   set(APF_LIBS apf ${DEP_LIBS})
 endif()
 
@@ -24,8 +27,11 @@ set(APF_SOURCES
   apfElement.cc
   apfField.cc
   apfFieldOf.cc
+  apfGradientByVolume.cc
   apfIntegrate.cc
   apfMatrix.cc
+  apfDynamicMatrix.cc
+  apfDynamicVector.cc
   apfMatrixField.cc
   apfMesh.cc
   apfMesh2.cc
@@ -45,7 +51,9 @@ set(APF_SOURCES
   apfCoordData.cc
   apfArrayData.cc
   apfUserData.cc
+  apfPartition.cc
   apfConvert.cc
+  apfConstruct.cc
   apfVerify.cc)
 
 set(APF_HEADERS
@@ -62,7 +70,6 @@ set(APF_HEADERS
   apfCavityOp.h
   apfShape.h
   apfNumbering.h
-  apfNumberingAlgorithms.h
   apfPartition.h
   apfConvert.h)
 
@@ -84,17 +91,6 @@ else()
    target_link_libraries(apf ${DEP_LIBS})
 endif()
 
-if(NOT BUILD_IN_TRILINOS)
-   INSTALL(FILES ${APF_HEADERS} DESTINATION include)
-   INSTALL(FILES "${PROJECT_BINARY_DIR}/libapf.pc" DESTINATION lib/pkgconfig)
-   INSTALL(TARGETS 
-     apf 
-     RUNTIME DESTINATION bin
-     LIBRARY DESTINATION lib
-     ARCHIVE DESTINATION lib
-   )
-endif(NOT BUILD_IN_TRILINOS)
-
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/apfConfig.cmake.in"
     "${CMAKE_BINARY_DIR}/apfConfig.cmake")
@@ -104,12 +100,31 @@ set(prefix "${CMAKE_INSTALL_PREFIX}")
 set(exec_prefix "${CMAKE_INSTALL_PREFIX}/bin")
 set(libdir "${CMAKE_INSTALL_PREFIX}/lib")
 set(includedir "${CMAKE_INSTALL_PREFIX}/include")
-set(PACKAGE_VERSION "1.0")
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/libapf.pc.in"
     "${PROJECT_BINARY_DIR}/libapf.pc"
     @ONLY)
 #pkgconfig }
+
+if(NOT BUILD_IN_TRILINOS)
+  #modulefile {
+  string(TOUPPER ${PROJECT_NAME} PACKAGE_NAME)
+  set(MODULEFILE "${PROJECT_BINARY_DIR}/${PROJECT_NAME}_${PACKAGE_VERSION}")
+  configure_file(moduletemplate ${MODULEFILE} @ONLY)
+  #modulefile }
+endif()
+
+if(NOT BUILD_IN_TRILINOS)
+   INSTALL(FILES ${APF_HEADERS} DESTINATION include)
+   INSTALL(FILES "${PROJECT_BINARY_DIR}/libapf.pc" DESTINATION lib/pkgconfig)
+   INSTALL(FILES ${MODULEFILE} DESTINATION lib/module)
+   INSTALL(TARGETS 
+     apf 
+     RUNTIME DESTINATION bin
+     LIBRARY DESTINATION lib
+     ARCHIVE DESTINATION lib
+   )
+endif(NOT BUILD_IN_TRILINOS)
 
 if(BUILD_IN_TRILINOS)
    tribits_subpackage_postprocess()

@@ -11,6 +11,8 @@
 #ifndef MDS_H
 #define MDS_H
 
+#include "mds_config.h"
+
 enum {
   MDS_VERTEX,
   MDS_EDGE,
@@ -19,13 +21,13 @@ enum {
   MDS_WEDGE,
   MDS_PYRAMID,
   MDS_TETRAHEDRON,
+  MDS_HEXAHEDRON,
   MDS_TYPES
 };
 
-typedef int mds_id;
+typedef MDS_ID_TYPE mds_id;
 
 #define MDS_NONE -1
-#define MDS_SET_MAX 256
 
 struct mds {
   int d;
@@ -65,5 +67,7 @@ void mds_add_adjacency(struct mds* m, int from_dim, int to_dim);
 void mds_remove_adjacency(struct mds* m, int from_dim, int to_dim);
 
 int mds_has_up(struct mds* m, mds_id e);
+
+void mds_change_dimension(struct mds* m, int d);
 
 #endif

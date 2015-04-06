@@ -163,10 +163,10 @@ class TriangleIntegration : public EntityIntegration
         virtual IntegrationPoint const* getPoint(int i) const
         {
           static IntegrationPoint points[4]=
-{ IntegrationPoint(Vector3(0.333333333333333,0.333333333333333,0),-0.5625),
-  IntegrationPoint(Vector3(0.600000000000000,0.200000000000000,0),0.520833333333333/2.0),
-  IntegrationPoint(Vector3(0.200000000000000,0.600000000000000,0),0.520833333333333/2.0),
-  IntegrationPoint(Vector3(0.200000000000000,0.200000000000000,0),0.520833333333333/2.0) };
+{ IntegrationPoint(Vector3(0.333333333333333,0.333333333333333,0),-0.562500000000000/2.0),
+  IntegrationPoint(Vector3(0.600000000000000,0.200000000000000,0), 0.520833333333333/2.0),
+  IntegrationPoint(Vector3(0.200000000000000,0.600000000000000,0), 0.520833333333333/2.0),
+  IntegrationPoint(Vector3(0.200000000000000,0.200000000000000,0), 0.520833333333333/2.0) };
           return points+i;
         }
         virtual int getAccuracy() const {return 3;}
@@ -195,7 +195,7 @@ class TriangleIntegration : public EntityIntegration
         virtual IntegrationPoint const* getPoint(int i) const
         {
           static IntegrationPoint points[7]=
-{ IntegrationPoint(Vector3(0.333333333333333,0.333333333333333,0),0.050844906370207/2.0),
+{ IntegrationPoint(Vector3(0.333333333333333,0.333333333333333,0),0.225000000000000/2.0),
   IntegrationPoint(Vector3(0.797426985353087,0.101286507323456,0),0.125939180544827/2.0),
   IntegrationPoint(Vector3(0.101286507323456,0.797426985353087,0),0.125939180544827/2.0),
   IntegrationPoint(Vector3(0.101286507323456,0.101286507323456,0),0.125939180544827/2.0),
@@ -240,6 +240,71 @@ class TriangleIntegration : public EntityIntegration
       static N6 i6;
       static Integration* integrations[6] = 
       {&i1,&i2,&i3,&i4,&i5,&i6};
+      return integrations[i];
+    }
+};
+
+class QuadIntegration : public EntityIntegration
+{
+  public:
+    class N1 : public Integration
+    {
+      public:
+        virtual int countPoints() const {return 1;}
+        virtual IntegrationPoint const* getPoint(int) const
+        {
+          static IntegrationPoint point(Vector3(0,0,0),4);
+          return &point;
+        }
+        virtual int getAccuracy() const {return 1;}
+    };
+    class N2 : public Integration
+    {
+      public:
+        virtual int countPoints() const {return 4;}
+        virtual IntegrationPoint const* getPoint(int i) const
+        {
+          static double const a =  0.577350269189626;
+          static IntegrationPoint points[4]=
+          { IntegrationPoint(Vector3(-a,-a,0),1),
+            IntegrationPoint(Vector3( a,-a,0),1),
+            IntegrationPoint(Vector3( a, a,0),1),
+            IntegrationPoint(Vector3(-a, a,0),1) };
+          return points + i;
+        }
+        virtual int getAccuracy() const {return 3;}
+    };
+    class N3 : public Integration
+    {
+      public:
+        virtual int countPoints() const {return 9;}
+        virtual IntegrationPoint const* getPoint(int i) const
+        {
+          static double const a = 0.774596669241483;
+          static double const b = 0.888888888888889;
+          static double const c = 0.555555555555556;
+          static IntegrationPoint points[9]=
+          { IntegrationPoint(Vector3(-a,-a,0), c * c),
+            IntegrationPoint(Vector3( 0,-a,0), b * c),
+            IntegrationPoint(Vector3( a,-a,0), c * c),
+            IntegrationPoint(Vector3(-a, 0,0), c * b),
+            IntegrationPoint(Vector3( 0, 0,0), b * b),
+            IntegrationPoint(Vector3( a, 0,0), c * b),
+            IntegrationPoint(Vector3(-a, a,0), c * c),
+            IntegrationPoint(Vector3( 0, a,0), b * c),
+            IntegrationPoint(Vector3( a, a,0), c * c) };
+          return points + i;
+        }
+        virtual int getAccuracy() const {return 5;}
+    };
+    virtual int countIntegrations() const {return 3;}
+    virtual Integration const* getIntegration(int i) const
+    {
+      static N1 i1;
+      static N2 i2;
+      static N3 i3;
+      static Integration* integrations[3] = 
+      {&i1,&i2,&i3};
       return integrations[i];
     }
 };
@@ -302,20 +367,120 @@ class TetrahedronIntegration : public EntityIntegration
     }
 };
 
+class PrismIntegration : public EntityIntegration
+{
+  public: /* a cheap one-point prism integration rule, not
+             really legitimately 1st-order accurate but
+             should be all right for our current purposes
+           \todo revise this with some proper mathematics */
+    class N1 : public Integration
+    {
+      public:
+        virtual int countPoints() const {return 1;}
+        virtual IntegrationPoint const* getPoint(int) const
+        {
+          static IntegrationPoint point(Vector3(1.0/3.0,1.0/3.0,0),1);
+          return &point;
+        }
+        virtual int getAccuracy() const {return 1;} //sort of
+    };
+    virtual int countIntegrations() const {return 1;}
+    virtual Integration const* getIntegration(int) const
+    {
+      static N1 i1;
+      return &i1;
+    }
+};
+
+class PyramidIntegration : public EntityIntegration
+{
+  public:
+    class N1 : public Integration
+    {
+      public:
+        virtual int countPoints() const {return 1;}
+        virtual IntegrationPoint const* getPoint(int) const
+        {
+          /* one-point rule from
+colorado.edu/engineering/CAS/courses.d/AFEM.d/AFEM.Ch12.d/AFEM.Ch12.pdf */
+          static IntegrationPoint point(
+              Vector3(0,0,-1.0/2.0),
+              128.0 / 27.0);
+          return &point;
+        }
+        virtual int getAccuracy() const {return 1;} //sort of
+    };
+    virtual int countIntegrations() const {return 1;}
+    virtual Integration const* getIntegration(int) const
+    {
+      static N1 i1;
+      return &i1;
+    }
+};
+
+class HexahedronIntegration : public EntityIntegration
+{
+  public:
+    class N1 : public Integration
+    {
+      public:
+        virtual int countPoints() const {return 1;}
+        virtual IntegrationPoint const* getPoint(int) const
+        {
+          static IntegrationPoint point(Vector3(0,0,0),8);
+          return &point;
+        }
+        virtual int getAccuracy() const {return 1;}
+    };
+    class N2 : public Integration
+    {
+      public:
+        virtual int countPoints() const {return 8;}
+        virtual IntegrationPoint const* getPoint(int i) const
+        {
+          static double const x = 0.577350269189626;
+          static IntegrationPoint points[8]=
+          { IntegrationPoint(Vector3( x, x, x),1),
+            IntegrationPoint(Vector3(-x, x, x),1),
+            IntegrationPoint(Vector3( x,-x, x),1),
+            IntegrationPoint(Vector3(-x,-x, x),1),
+            IntegrationPoint(Vector3( x, x,-x),1),
+            IntegrationPoint(Vector3(-x, x,-x),1),
+            IntegrationPoint(Vector3( x,-x,-x),1),
+            IntegrationPoint(Vector3(-x,-x,-x),1) };
+          return points + i;
+        }
+        virtual int getAccuracy() const {return 3;}
+    };
+    virtual int countIntegrations() const {return 2;}
+    virtual Integration const* getIntegration(int i) const
+    {
+      static N1 i1;
+      static N2 i2;
+      static Integration* integrations[2] = 
+      {&i1,&i2};
+      return integrations[i];
+    }
+};
+
 EntityIntegration const* getIntegration(int meshEntityType)
 {
   static EdgeIntegration edge;
   static TriangleIntegration triangle;
+  static QuadIntegration quad;
   static TetrahedronIntegration tet;
+  static PrismIntegration prism;
+  static PyramidIntegration pyramid;
+  static HexahedronIntegration hex;
   EntityIntegration* integrations[Mesh::TYPES] =
   {NULL,      //vertex
    &edge,     //edge
    &triangle, //triangle
-   NULL,      //quad
+   &quad,     //quad
    &tet,      //tet
-   NULL,      //hex
-   NULL,      //prism
-   NULL};     //pyramid
+   &hex,      //hex
+   &prism,    //prism
+   &pyramid}; //pyramid
   return integrations[meshEntityType];
 }
 
@@ -325,6 +490,18 @@ Integrator::Integrator(int o):
 }
 
 Integrator::~Integrator()
+{
+}
+
+void Integrator::inElement(MeshElement*)
+{
+}
+
+void Integrator::outElement()
+{
+}
+
+void Integrator::parallelReduce()
 {
 }
 

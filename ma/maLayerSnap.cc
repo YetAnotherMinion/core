@@ -1,7 +1,7 @@
+#include <PCU.h>
 #include "maCrawler.h"
 #include "maLayer.h"
 #include "maSnap.h"
-#include <PCU.h>
 
 namespace ma {
 
@@ -38,6 +38,12 @@ struct SnapTagger : public Crawler
       m->getDoubleTag(v, snapTag, &s[0]);
       Vector os = ox + (s - x);
       m->setDoubleTag(ov, snapTag, &os[0]);
+    } else {
+      /* tagVertsToSnap can leave a tag on the
+         side of a boundary layer along a model face,
+         we have to clear those away if the base vertex
+         is not snapping */
+      m->removeTag(ov, snapTag);
     }
     return ov;
   }
@@ -51,7 +57,7 @@ struct SnapTagger : public Crawler
       PCU_COMM_PACK(to, s);
     }
   }
-  bool recv(Entity* v, int from)
+  bool recv(Entity* v, int)
   {
     bool has;
     PCU_COMM_UNPACK(has);
@@ -84,6 +90,11 @@ struct BaseTopLinker : public Crawler
     a = a_;
     m = a->mesh;
     linkTag = m->createIntTag("ma_base_top", 2);
+  }
+  ~BaseTopLinker()
+  {
+    apf::removeTagFromDimension(m, linkTag, 0);
+    m->destroyTag(linkTag);
   }
   void getLink(Entity* v, int& peer, int& idx)
   {
@@ -134,7 +145,7 @@ struct BaseTopLinker : public Crawler
     m->getIntTag(v, linkTag, link);
     PCU_COMM_PACK(to, link);
   }
-  bool recv(Entity* v, int from)
+  bool recv(Entity* v, int)
   {
     int link[2];
     PCU_COMM_UNPACK(link);
@@ -173,13 +184,12 @@ static void feedbackTopSnap(Adapt* a, Tag* snapTag)
     }
   m->end(it);
   PCU_Comm_Send();
-  while (PCU_Comm_Listen())
-    while (!PCU_Comm_Unpacked()) {
-      int link;
-      PCU_COMM_UNPACK(link);
-      Entity* v = l.lookup(link);
-      m->removeTag(v, snapTag);
-    }
+  while (PCU_Comm_Receive()) {
+    int link;
+    PCU_COMM_UNPACK(link);
+    Entity* v = l.lookup(link);
+    m->removeTag(v, snapTag);
+  }
 }
 
 struct LayerSnapper : public Crawler
@@ -240,7 +250,7 @@ struct LayerSnapper : public Crawler
     bool has = m->hasTag(v, snapTag);
     PCU_COMM_PACK(to, has);
   }
-  bool recv(Entity* v, int from)
+  bool recv(Entity* v, int)
   {
     bool has;
     PCU_COMM_UNPACK(has);
@@ -293,7 +303,7 @@ void snapLayer(Adapt* a, Tag* snapTag)
 {
   if ( ! a->hasLayer)
     return;
-  double t0 = MPI_Wtime();
+  double t0 = PCU_Time();
   findLayerBase(a);
   tagLayerForSnap(a, snapTag);
   flagLayerTop(a);
@@ -302,7 +312,7 @@ void snapLayer(Adapt* a, Tag* snapTag)
   freezeTop(a);
   feedbackTopSnap(a, snapTag);
   snapLowerLayer(a, snapTag);
-  double t1 = MPI_Wtime();
+  double t1 = PCU_Time();
   print("snapped %ld of %ld layer curves in %f seconds",
       success, targets, t1 - t0);
 }

@@ -7,12 +7,12 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "maMesh.h"
 #include "maTables.h"
 #include <algorithm>
 #include <cfloat>
 #include <apf.h>
-#include <PCU.h>
 
 namespace ma {
 
@@ -21,14 +21,6 @@ Vector getPosition(Mesh* m, Entity* vertex)
   Vector r;
   m->getPoint(vertex,0,r);
   return r;
-}
-
-void addRemote(Mesh* m, Entity* e, int p, Entity* r)
-{
-  Remotes remotes;
-  m->getRemotes(e,remotes);
-  remotes[p]=r;
-  m->setRemotes(e,remotes);
 }
 
 /* returns true if the arrays are equal */
@@ -143,15 +135,6 @@ void rotateOct(Entity** iv, int n, Entity** ov)
 {
   for (int i=0; i < 6; ++i)
     ov[i] = iv[oct_rotation[n][i]];
-}
-
-Vector averagePositions(Mesh* m, Entity** v, int n)
-{
-  Vector result = getPosition(m,v[0]);
-  for (int i=1; i < n; ++i)
-    result = result + getPosition(m,v[i]);
-  result = result / n;
-  return result;
 }
 
 int getDownIndex(Mesh* m, Entity* e, Entity* de)
@@ -337,6 +320,13 @@ bool isTwoTriAngleAcute(Mesh* m, Entity** va, Entity** vb)
   return (getTriNormal(m,va)*getTriNormal(m,vb)) > 0;
 }
 
+Vector getTriNormal(Mesh* m, Entity* e)
+{
+  Entity* v[3];
+  m->getDownward(e,0,v);
+  return getTriNormal(m, v);
+}
+
 bool isTwoTriAngleAcute(Mesh* m, Entity* a, Entity* b)
 {
   Entity* va[3];
@@ -406,6 +396,17 @@ Entity* findEdge(Mesh* m, Entity* v0, Entity* v1)
 bool edgeExists(Mesh* m, Entity* v0, Entity* v1)
 {
   return findEdge(m, v0, v1) != 0;
+}
+
+bool isTriEdgeAligned(Mesh* m, Entity* tri, Entity* edge)
+{
+  Entity* tv[3];
+  Entity* ev[2];
+  m->getDownward(tri, 0, tv);
+  m->getDownward(edge, 0, ev);
+  int a = findIn(tv, 3, ev[0]);
+  int b = findIn(tv, 3, ev[1]);
+  return b == (a+1)%3;
 }
 
 }

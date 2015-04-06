@@ -7,11 +7,11 @@
   of the SCOREC Non-Commercial License this program is distributed under.
  
 *******************************************************************************/
+#include <PCU.h>
 #include "maMatch.h"
 #include "maMesh.h"
 #include "maAdapt.h"
 #include "maRefine.h"
-#include <PCU.h>
 
 namespace ma {
 
@@ -42,7 +42,8 @@ void matchNewElements(Refine* r)
       Entity* e = r->toSplit[d][i];
       apf::Matches matches;
       m->getMatches(e,matches);
-      if ( ! matches.getSize()) continue;
+      if ( ! matches.getSize())
+        continue;
       EntityArray& splits = r->newEntities[d][i];
       for (size_t i=0; i < matches.getSize(); ++i)
       {
@@ -73,6 +74,27 @@ void matchNewElements(Refine* r)
   }
   PCU_Add_Longs(&face_count,1);
   print("updated matching for %li faces",face_count);
+}
+
+void preventMatchedCavityMods(Adapt* a)
+{
+  Mesh* m = a->mesh;
+  if (!m->hasMatching())
+    return;
+  Iterator* it = m->begin(0);
+  Entity* v;
+  while ((v = m->iterate(it))) {
+    apf::Matches matches;
+    m->getMatches(v, matches);
+    if (!matches.getSize())
+      continue;
+    apf::Up edges;
+    setFlag(a, v, DONT_COLLAPSE);
+    m->getUp(v, edges);
+    for (int i = 0; i < edges.n; ++i)
+      setFlag(a, edges.e[i], DONT_COLLAPSE | DONT_SWAP);
+  }
+  m->end(it);
 }
 
 }

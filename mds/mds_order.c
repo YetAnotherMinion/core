@@ -95,12 +95,13 @@ static mds_id find_seed(struct mds_apf* m)
   return best_v;
 }
 
-static void number_connected(struct mds* m, mds_id v,
+static void number_connected_graph(struct mds* m, mds_id v,
     struct mds_tag* tag, mds_id label[MDS_TYPES])
 {
   struct queue q;
   struct mds_set adj[4];
   int i,j;
+  adj[0].n = adj[1].n = adj[2].n = adj[3].n = 0;
   if (!visit(m, tag, label, v))
     return;
   make_queue(&q, m->n[MDS_VERTEX]);
@@ -122,19 +123,19 @@ static void number_connected(struct mds* m, mds_id v,
   free_queue(&q);
 }
 
-struct mds_tag* mds_number(struct mds_apf* m)
+static struct mds_tag* number_graph(struct mds_apf* m)
 {
   struct mds_tag* tag;
   mds_id label[MDS_TYPES];
   mds_id v;
   int i;
-  tag = mds_create_tag(&m->tags, &m->mds, "mds_number", sizeof(mds_id), 1);
+  tag = mds_create_tag(&m->tags, "mds_number", sizeof(mds_id), 1);
   for (i = 0; i < MDS_TYPES; ++i)
     label[i] = m->mds.n[i] - 1;
   v = find_seed(m);
-  number_connected(&m->mds, v, tag, label);
+  number_connected_graph(&m->mds, v, tag, label);
   for (v = mds_begin(&m->mds, 0); v != MDS_NONE; v = mds_next(&m->mds, v))
-    number_connected(&m->mds, v, tag, label);
+    number_connected_graph(&m->mds, v, tag, label);
   for (i = 0; i < MDS_TYPES; ++i)
     assert(label[i] == -1);
   return tag;
@@ -147,38 +148,43 @@ static mds_id lookup(struct mds_tag* tag, mds_id old)
   return mds_identify(mds_type(old),*ip);
 }
 
-static void update_remotes(struct mds_apf* m, struct mds_tag* new_of)
+/* see apf/apfConvert.cc apf::Converter::createRemotes */
+static void rebuild_net(struct mds_net* net,
+    struct mds* m,
+    struct mds_net* net2,
+    struct mds* m2,
+    struct mds_tag* new_of)
 {
   int d;
   mds_id e;
   mds_id ne;
+  mds_id ce;
+  mds_id nce;
   struct mds_copies* cs;
+  struct mds_copy c;
   int i;
-  int from;
   PCU_Comm_Begin();
-  for (d = 0; d <= m->mds.d; ++d)
-    for (e = mds_begin(&m->mds, d);
-         e != MDS_NONE;
-         e = mds_next(&m->mds, e)) {
-      cs = mds_get_copies(&m->remotes, e);
+  for (d = 0; d <= m->d; ++d)
+    for (e = mds_begin(m, d); e != MDS_NONE; e = mds_next(m, e)) {
+      cs = mds_get_copies(net, e);
       if (!cs)
         continue;
       ne = lookup(new_of, e);
       for (i = 0; i < cs->n; ++i) {
-        PCU_COMM_PACK(cs->c[i].p, cs->c[i].e);
+        ce = cs->c[i].e;
+        PCU_COMM_PACK(cs->c[i].p, ce);
         PCU_COMM_PACK(cs->c[i].p, ne);
       }
     }
   PCU_Comm_Send();
   while (PCU_Comm_Listen()) {
-    from = PCU_Comm_Sender();
+    c.p = PCU_Comm_Sender();
     while (!PCU_Comm_Unpacked()) {
-      PCU_COMM_UNPACK(e);
+      PCU_COMM_UNPACK(ce);
       PCU_COMM_UNPACK(ne);
-      cs = mds_get_copies(&m->remotes, e);
-      for (i = 0; i < cs->n; ++i)
-        if (cs->c[i].p == from)
-          cs->c[i].e = ne;
+      c.e = ne;
+      nce = lookup(new_of, ce);
+      mds_add_copy(net2, m2, nce, c);
     }
   }
 }
@@ -193,7 +199,7 @@ static struct mds_tag* invert(
   mds_id e;
   mds_id ne;
   mds_id* ip;
-  old_of = mds_create_tag(&(m2->tags),&(m2->mds),
+  old_of = mds_create_tag(&(m2->tags),
       "mds_inverse",sizeof(mds_id),1);
   for (d = 0; d <= m->d; ++d) {
     for (e = mds_begin(m,d);
@@ -284,7 +290,7 @@ static void rebuild_tags(
   for (t = m->tags.first; t; t = t->next) {
     if (t == new_of)
       continue;
-    nt = mds_create_tag(&(m2->tags),&(m2->mds),
+    nt = mds_create_tag(&(m2->tags),
         t->name,t->bytes,t->user_type);
     mds_swap_tag_structs(&m->tags, &t, &m2->tags, &nt);
     for (d = 0; d <= m2->mds.d; ++d) {
@@ -306,8 +312,7 @@ static void rebuild_tags(
 static void rebuild_coords(
     struct mds_apf* m,
     struct mds_apf* m2,
-    struct mds_tag* old_of,
-    struct mds_tag* new_of)
+    struct mds_tag* old_of)
 {
   mds_id ne;
   mds_id e;
@@ -327,13 +332,12 @@ static void rebuild_coords(
 static void rebuild_parts(
     struct mds_apf* m,
     struct mds_apf* m2,
-    struct mds_tag* old_of,
-    struct mds_tag* new_of)
+    struct mds_tag* old_of)
 {
   int d;
   mds_id ne;
   mds_id e;
-  for (d = 0; d < m->mds.d; ++d)
+  for (d = 0; d <= m->mds.d; ++d)
     for (ne = mds_begin(&m2->mds, d);
          ne != MDS_NONE;
          ne = mds_next(&m2->mds, ne)) {
@@ -342,46 +346,25 @@ static void rebuild_parts(
     }
 }
 
-static void rebuild_remotes(
-    struct mds_apf* m,
-    struct mds_apf* m2,
-    struct mds_tag* old_of,
-    struct mds_tag* new_of)
-{
-  int d;
-  mds_id ne;
-  mds_id e;
-  int t;
-  for (d = 0; d < m->mds.d; ++d)
-    for (ne = mds_begin(&m2->mds, d);
-         ne != MDS_NONE;
-         ne = mds_next(&m2->mds, ne)) {
-      e = lookup(old_of, ne);
-      mds_set_copies(&m2->remotes, &m2->mds,
-                     ne,
-                     mds_get_copies(&m->remotes, e));
-    }
-  for (t = 0; t < MDS_TYPES; ++t) {
-    free(m->remotes.data[t]);
-    m->remotes.data[t] = NULL;
-  }
-}
-
 static struct mds_apf* rebuild(
     struct mds_apf* m,
     struct mds_tag* new_of)
 {
   struct mds_apf* m2;
   struct mds_tag* old_of;
-  update_remotes(m, new_of);
   m2 = mds_apf_create(m->user_model, m->mds.d, m->mds.n);
   old_of = invert(&m->mds, m2, new_of);
   rebuild_verts(m, m2, old_of);
   rebuild_ents(m, m2, old_of, new_of);
   rebuild_tags(m, m2, old_of, new_of);
-  rebuild_coords(m, m2, old_of, new_of);
-  rebuild_parts(m, m2, old_of, new_of);
-  rebuild_remotes(m, m2, old_of, new_of);
+  rebuild_coords(m, m2, old_of);
+  rebuild_parts(m, m2, old_of);
+  rebuild_net(&m->remotes, &m->mds,
+              &m2->remotes, &m2->mds,
+              new_of);
+  rebuild_net(&m->matches, &m->mds,
+              &m2->matches, &m2->mds,
+              new_of);
   mds_destroy_tag(&m2->tags, old_of);
   return m2;
 }
@@ -390,7 +373,7 @@ struct mds_apf* mds_reorder(struct mds_apf* m)
 {
   struct mds_tag* new_of;
   struct mds_apf* m2;
-  new_of = mds_number(m);
+  new_of = number_graph(m);
   m2 = rebuild(m, new_of);
   mds_apf_destroy(m);
   return m2;

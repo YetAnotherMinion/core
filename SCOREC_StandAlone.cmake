@@ -2,7 +2,7 @@
 
 #Setting Version Number, Project Name
 cmake_minimum_required (VERSION 2.8)
-project (SCOREC) 
+project (SCOREC)
 
 #unless building shared libs, then select static libs 
 # if both static and shared libs are available 
@@ -15,12 +15,6 @@ set(CMAKE_MODULE_PATH
    ${CMAKE_MODULE_PATH} 
    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/")
 
-#control embedding of shared lib paths into targets
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-set(CMAKE_SKIP_BUILD_RPATH false)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH false)
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH true)
-
 #Settings options for testing
 enable_testing()
 include(CTest)
@@ -28,12 +22,23 @@ include(CTest)
 option(IS_TESTING "Build for CTest" OFF)
 set(MPIRUN "mpirun"
     CACHE string 
-    "the mpirun or srun executable"
-    FORCE)
+    "the mpirun or srun executable")
 set(MPIRUN_PROCFLAG "-np"
     CACHE string 
-    "the command line flag to give process count to MPIRUN"
-    FORCE)
+    "the command line flag to give process count to MPIRUN")
+
+#Doxygen generation system
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in
+               ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
+add_custom_target(doc
+${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+COMMENT "Generating API documentation with Doxygen" VERBATIM
+)
+endif(DOXYGEN_FOUND)
+
 
 #############################################################
 #STK
@@ -51,9 +56,9 @@ endif(HAVE_STK)
 
 add_subdirectory(pcu)
 
-add_subdirectory(apf)
-
 add_subdirectory(gmi)
+
+add_subdirectory(apf)
 
 add_subdirectory(mds)
 
@@ -65,6 +70,19 @@ add_subdirectory(ma)
 
 add_subdirectory(spr)
 
+add_subdirectory(dwr)
+
 add_subdirectory(phasta)
 
+add_subdirectory(mpas)
+
+add_subdirectory(viz)
+
+add_subdirectory(dsp)
+
 add_subdirectory(test)
+
+#binary distribution package
+set(CPACK_GENERATOR "TGZ")
+set(CPACK_PACKAGE_VERSION "1.0.1")
+include(CPack)
