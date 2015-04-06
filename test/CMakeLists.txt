@@ -37,7 +37,7 @@ macro(setup_exe exename srcname)
   endif()
 endmacro(setup_exe)
 
-setup_exe(dan dan.c)
+setup_exe(dan dan.cc)
 setup_exe(mdlConvert mdlConvert.c)
 setup_exe(mkmodel mkmodel.cc)
 setup_exe(ma_insphere ma_insphere.cc)

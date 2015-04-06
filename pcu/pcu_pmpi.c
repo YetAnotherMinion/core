@@ -14,6 +14,7 @@
 static int global_size;
 static int global_rank;
 
+MPI_Comm original_comm;
 MPI_Comm pcu_comms[2];
 
 pcu_mpi pcu_pmpi =
@@ -25,6 +26,7 @@ pcu_mpi pcu_pmpi =
 
 void pcu_pmpi_init(MPI_Comm comm)
 {
+  original_comm = comm;
   MPI_Comm_dup(comm,&pcu_comms[PCU_USER_MESSAGE]);
   MPI_Comm_dup(comm,&pcu_comms[PCU_COLL_MESSAGE]);
   MPI_Comm_size(comm,&global_size);

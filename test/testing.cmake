@@ -42,7 +42,8 @@ set(MDIR ${MESHES}/pipe)
 add_test(verify_serial
   verify
   "${MDIR}/pipe.dmg"
-  "${MDIR}/pipe.smb")
+  "${MDIR}/pipe.smb"
+  "1")
 add_test(uniform_serial
   uniform
   "${MDIR}/pipe.dmg"
@@ -85,7 +86,8 @@ add_test(verify_parallel
   ${MPIRUN} ${MPIRUN_PROCFLAG} 4
   ./verify
   "${MDIR}/pipe.dmg"
-  "pipe_4_.smb")
+  "pipe_4_.smb"
+   "1")
 add_test(ma_parallel
   ${MPIRUN} ${MPIRUN_PROCFLAG} 4
   ./ma_test
@@ -184,7 +186,8 @@ set(MDIR ${MESHES}/nonmanifold)
 add_test(nonmanif_verify
   ./verify
   "${MDIR}/nonmanifold.dmg"
-  "${MDIR}/nonmanifold.smb")
+  "${MDIR}/nonmanifold.smb"
+  "1")
 splitfun(nonmanif_split
   ./split
   "${MDIR}/nonmanifold.dmg"
@@ -195,7 +198,8 @@ add_test(nonmanif_verify2
   ${MPIRUN} ${MPIRUN_PROCFLAG} 2
   ./verify
   "${MDIR}/nonmanifold.dmg"
-  "nonmanifold_2_.smb")
+  "nonmanifold_2_.smb"
+  "1")
 if (ENABLE_MPAS)
   set(MDIR ${MESHES}/mpas)
   add_test(read_mpas
@@ -214,7 +218,8 @@ if (ENABLE_MPAS)
       ${MPIRUN} ${MPIRUN_PROCFLAG} 4
       ./verify
       "mpas.dmg"
-      "mpas_4_.smb")
+      "mpas_4_.smb"
+      "4")
     add_test(ghost_mpas
       ${MPIRUN} ${MPIRUN_PROCFLAG} 4
       ./ghost
